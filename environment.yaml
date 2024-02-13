@@ -45,5 +45,5 @@ dependencies:
   - rioxarray
   - xarray
   - python-duckdb
-  - conda-forge::s3fs
+  - s3fs
   - pystac-client

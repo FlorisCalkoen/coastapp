@@ -140,7 +140,6 @@ class SpatialQueryApp:
         return self.transect_view
 
 def default_visualization(geometry):
-    geometry.to_parquet("geometry.parquet")
     return gv.Path(geometry[["geometry"]].to_crs(4326)).opts(
         color="red", line_width=1, tools=["hover"], active_tools=["wheel_zoom"]
     )
@@ -150,10 +149,7 @@ def prepare_default_geometry(data, crs):
     Prepares a default geometry from a data dictionary and sets its CRS This should
     exactly match what is being returned from the spatial engine.
     """
-
-    # Convert WKT string to a LineString geometry
     geom = wkt.loads(data['geometry'])
-    # Create a GeoDataFrame
     gdf = gpd.GeoDataFrame([data], geometry=[geom], crs=pyproj.CRS.from_user_input(crs))
     return gdf[["geometry"]]
 
@@ -174,4 +170,4 @@ default_geometry = prepare_default_geometry(default_geometry, crs=3857).to_crs(4
 
 spatial_engine = SpatialQueryEngine(stac_href, collection_id="gcts-2000m", storage_backend="azure")
 app = SpatialQueryApp(spatial_engine, default_visualization, default_geometry)
-pn.Column(app.view()).show()
+pn.Column(app.view()).servable()
