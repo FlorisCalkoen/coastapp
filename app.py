@@ -58,7 +58,7 @@ class SpatialQueryEngine:
     def load_quadtiles_from_stac(self, stac_url: str, collection_id: str) -> gpd.GeoDataFrame:
         """Fetches and processes a STAC collection to create a GeoDataFrame of quadtiles."""
         stac_client = pystac_client.Client.open(stac_url)
-        collection = stac_client.get_collection(collection_id)
+        collection = stac_client.get_child(collection_id)
         items = collection.get_all_items()
         quadtiles = gpd.GeoDataFrame(
             [self.extract_storage_partition(item) for item in items], crs="EPSG:4326"

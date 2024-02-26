@@ -44,6 +44,8 @@ dependencies:
   - rasterio
   - rioxarray
   - xarray
-  - python-duckdb
   - s3fs
   - pystac-client
+
+  - pip:
+      -  duckdb  # conda binaries are usually delayed
