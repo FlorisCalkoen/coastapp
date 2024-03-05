@@ -38,6 +38,7 @@ RUN apt-get update && \
 
 # Copy your app files and scripts into the Docker image
 COPY app.py /app/
+COPY utils.py /app/
 COPY run_server.sh /app/
 COPY setup_run_server.sh /app/
 

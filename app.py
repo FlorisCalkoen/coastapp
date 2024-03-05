@@ -8,6 +8,7 @@ import geoviews as gv
 import geoviews.tile_sources as gvts
 import holoviews as hv
 import panel as pn
+import param
 import pyproj
 import pystac_client
 import shapely.geometry
@@ -15,6 +16,8 @@ from holoviews import streams
 from shapely import wkt
 from shapely.geometry import Point
 from shapely.wkb import loads
+
+from utils import create_offset_rectangle
 
 dotenv.load_dotenv(override=True)
 
@@ -95,54 +98,73 @@ class SpatialQueryEngine:
         return gpd.GeoDataFrame(transect, crs=self.proj_epsg)
 
 
-class SpatialQueryApp:
-    def __init__(
-        self,
-        spatial_engine: SpatialQueryEngine,
-        visualization_func,
-        default_geometry,  # Expected to be a GeoDataFrame
-    ):
+class SpatialQueryApp(param.Parameterized):
+    transect_name = param.String(default=None, doc="Identifier for the selected transect")
+    # Using GeoDataFrame to store the current geometry explicitly
+    current_geometry = param.Parameter(default=None, precedence=-1)
+
+    def __init__(self, spatial_engine, visualization_func, default_geometry):
+        super().__init__()
         self.spatial_engine = spatial_engine
         self.visualization_func = visualization_func
         self.default_geometry = default_geometry
         self.setup_ui()
+        self.current_geometry = default_geometry
 
     def setup_ui(self):
+        self.title = pn.pane.Markdown("# Coastal Annotation Application")
         self.tiles = gvts.EsriImagery.opts(width=500, height=500)
         self.point_draw = gv.Points([]).opts(size=10, color="red", tools=["hover"])
-        self.point_draw_stream = streams.PointDraw(
-            source=self.point_draw, num_objects=1
-        )
-        self.point_draw_stream.add_subscriber(self.update_view)
-        self.transect_view = pn.pane.HoloViews(self.initialize_view())
+        self.point_draw_stream = streams.PointDraw(source=self.point_draw, num_objects=1)
+        self.point_draw_stream.add_subscriber(self.on_point_draw)
+        # Initialize the view with the default geometry visualization
+        self.transect_view = pn.pane.HoloViews(self.visualization_func(self.default_geometry) * self.tiles * self.point_draw)
 
-    def initialize_view(self):
-        # Use the provided default geometry for initialization
-        return self.visualization_func(self.default_geometry) * self.point_draw * self.tiles
-
-    def update_view(self, data):
+    def on_point_draw(self, data):
         if data:
             x, y = data["x"][0], data["y"][0]
-            self.transect_view.object = self.get_geometry_and_visualize(x, y)
-        else:
-            self.transect_view.object = self.visualization_func(self.default_geometry) * self.point_draw * self.tiles
-
-    def get_geometry_and_visualize(self, x, y):
-        try:
             geometry = self.spatial_engine.get_nearest_geometry(x, y)
-            if geometry.empty:
-                geometry = self.default_geometry
-            return self.visualization_func(geometry) * self.point_draw * self.tiles
-        except Exception:
-            return self.visualization_func(self.default_geometry) * self.point_draw * self.tiles
+            self.current_geometry = geometry  # Directly update current geometry
+            self.update_view()
+
+    @param.depends('current_geometry', watch=True)
+    def update_view(self):
+        # Visualization logic is now centralized and reacts to changes in current_geometry
+        try:
+            # Assuming visualization_func can handle both GeoDataFrame or None as input
+            new_view = self.visualization_func(self.current_geometry)
+        except Exception as e:
+            print(f"Visualization failed due to {e}. Defaulting to default geometry.")
+            new_view = self.visualization_func(self.default_geometry)
+        self.transect_view.object = new_view * self.tiles * self.point_draw
 
     def view(self):
-        return self.transect_view
+        return pn.Column(self.title, self.transect_view, sizing_mode='stretch_width')
 
-def default_visualization(geometry):
-    return gv.Path(geometry[["geometry"]].to_crs(4326)).opts(
+
+def default_visualization(transect):
+    
+    polygon = gpd.GeoDataFrame(
+    geometry=[
+        create_offset_rectangle(
+            transect.to_crs(transect.estimate_utm_crs()).geometry.item(),
+            distance=200,
+        )
+    ],
+    crs=transect.estimate_utm_crs(),
+    )
+
+    polygon_plot = gv.Polygons(polygon[["geometry"]].to_crs(4326)).opts(
+        fill_alpha=0.1, fill_color="green", line_width=2
+    )
+
+    transect_plot = gv.Path(transect[["geometry"]].to_crs(4326)).opts(
         color="red", line_width=1, tools=["hover"], active_tools=["wheel_zoom"]
     )
+
+    return polygon_plot * transect_plot
+
+
 
 def prepare_default_geometry(data, crs):
     """
@@ -151,7 +173,7 @@ def prepare_default_geometry(data, crs):
     """
     geom = wkt.loads(data['geometry'])
     gdf = gpd.GeoDataFrame([data], geometry=[geom], crs=pyproj.CRS.from_user_input(crs))
-    return gdf[["geometry"]]
+    return gdf
 
 pn.extension()
 hv.extension("bokeh")
@@ -159,14 +181,31 @@ hv.extension("bokeh")
 quadtile_href = "https://coclico.blob.core.windows.net/public/quadtiles-gcts-2000m.parquet"
 stac_href = "https://coclico.blob.core.windows.net/stac/v1/catalog.json"
 
+
 default_geometry = {
-    'tr_name': 'cl33475tr223848', 'lon': 4.27815580368042, 'lat': 52.11359405517578,
-    'bearing': 313.57275390625, 'utm_crs': 32631, 'coastline_name': 33475,
-    'geometry': 'LINESTRING (480870.5600721731898375 6816115.3957129446789622, 471608.4173124172375537 6825266.4335269629955292)', '__null_dask_index__': 5489669, 'quadkey': 'qk12',
-    'distance': 41.843447957820615
+    "tr_name": "cl33475tr00223848",
+    "lon": 4.27815580368042,
+    "lat": 52.11359405517578,
+    "bearing": 313.57275390625,
+    "utm_crs": 32631,
+    "coastline_name": 33475,
+    "geometry": "LINESTRING (4.28855455531973 52.10728388554343, 4.267753743098557 52.119904391779215)",
+    "bbox": {
+        "maxx": 4.28855455531973,
+        "maxy": 52.119904391779215,
+        "minx": 4.267753743098557,
+        "miny": 52.10728388554343,
+    },
+    "quadkey": "120201102230",
+    "isoCountryCodeAlpha2": "NL",
+    "admin_level_1_name": "Nederland",
+    "isoSubCountryCode": "NL-ZH",
+    "admin_level_2_name": "Zuid-Holland",
+    "bounding_quadkey": "1202021102203",
 }
 
-default_geometry = prepare_default_geometry(default_geometry, crs=3857).to_crs(4326)
+
+default_geometry = prepare_default_geometry(default_geometry, crs=4326).to_crs(4326)
 
 spatial_engine = SpatialQueryEngine(stac_href, collection_id="gcts-2000m", storage_backend="azure")
 app = SpatialQueryApp(spatial_engine, default_visualization, default_geometry)

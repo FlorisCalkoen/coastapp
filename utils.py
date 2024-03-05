@@ -1,10 +1,6 @@
-
-import os
-
-import dotenv
 import fsspec
 import geopandas as gpd
-from shapely.geometry import box
+from shapely.geometry import LineString, Polygon, box
 
 
 def extract_spatial_extents(base_path, storage_options=None):
@@ -44,24 +40,42 @@ def extract_spatial_extents(base_path, storage_options=None):
         raise ValueError("All GeoParquet files must have the same CRS.")
     return gpd.GeoDataFrame(extents, crs=crs[0])
 
-# # Example usage for local storage
-# href = "~/data/live/gcts-2000m.parquet"
-# gdf = extract_spatial_extents(href)
+def generate_offset_line(line: LineString, offset: float) -> LineString:
+    """
+    Generate an offset line from the original line at a specified distance using offset_curve method.
 
-dotenv.load_dotenv(override=True)
+    Args:
+        line (LineString): The original line from which the offset is generated.
+        offset (float): The distance for the offset. Positive values offset to the left,
+            and negative values offset to the right.
 
-sas_token = os.getenv("AZURE_STORAGE_SAS_TOKEN")
-storage_account_name = os.getenv("AZURE_STORAGE_ACCOUNT")
-azure_connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+    Returns:
+        LineString: The offset line generated from the original line.
+    """
+    return line.offset_curve(offset) if offset != 0 else line
 
-href = "az://transects/gcts-2000m.parquet"
-gdf = extract_spatial_extents(href, storage_options={'connection_string': azure_connection_string})
 
-# aws_access_key_id = os.getenv("AWS_ACCESS_KEY_ID")
-# aws_secret_access_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+def create_offset_rectangle(line: LineString, distance: float) -> Polygon:
+    """
+    Construct a rectangle polygon using the original line and an offset distance.
 
-# # Example usage for remote storage (e.g., S3)
-# href = "s3://coastmonitor/gcts-2000m.parquet"
-# gdf = extract_spatial_extents(href, storage_options={'key': aws_access_key_id, 'secret': aws_secret_access_key})
+    Args:
+        line (LineString): The original line around which the polygon is constructed.
+        distance (float): The offset distance used to create the sides of the polygon.
 
-print("dpne")
+    Returns:
+        Polygon: The constructed rectangle-shaped polygon.
+    """
+
+    # Create the offset lines
+    left_offset_line = generate_offset_line(line, distance)
+    right_offset_line = generate_offset_line(line, -distance)
+
+    # Retrieve end points
+    left_start, left_end = left_offset_line.coords[:]
+    right_start, right_end = right_offset_line.coords[:]
+
+    # Construct the polygon using the end points
+    polygon = Polygon([left_start, left_end, right_end, right_start])
+
+    return polygon
