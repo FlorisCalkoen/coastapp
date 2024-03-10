@@ -21,8 +21,14 @@ from utils import create_offset_rectangle
 
 dotenv.load_dotenv(override=True)
 
+
 class SpatialQueryEngine:
-    def __init__(self, stac_url: str, collection_id: str, storage_backend: Literal['azure', 'aws'] = 'azure'):
+    def __init__(
+        self,
+        stac_url: str,
+        collection_id: str,
+        storage_backend: Literal["azure", "aws"] = "azure",
+    ):
         """
         Initializes the SpatialQueryEngine with STAC collection details.
 
@@ -36,7 +42,7 @@ class SpatialQueryEngine:
         self.con.execute("INSTALL spatial;")
         self.con.execute("LOAD spatial;")
         self.configure_storage_backend()
-        
+
         # Directly load quadtiles from the STAC collection
         self.quadtiles = self.load_quadtiles_from_stac(stac_url, collection_id)
         if len(self.quadtiles["proj:epsg"].unique()) > 1:
@@ -46,19 +52,26 @@ class SpatialQueryEngine:
         self.radius = 10000.0  # Max radius for nearest search
 
     def configure_storage_backend(self):
-        if self.storage_backend == 'azure':
+        if self.storage_backend == "azure":
             self.con.execute("INSTALL azure;")
             self.con.execute("LOAD azure;")
-            self.con.execute(f"SET azure_storage_connection_string = '{os.getenv('AZURE_STORAGE_CONNECTION_STRING')}';")
-        elif self.storage_backend == 'aws':
+            self.con.execute(
+                f"SET azure_storage_connection_string = '{os.getenv('AZURE_STORAGE_CONNECTION_STRING')}';"
+            )
+        elif self.storage_backend == "aws":
             self.con.execute("INSTALL httpfs;")
             self.con.execute("LOAD httpfs;")
             self.con.execute("SET s3_region = 'eu-west-2';")
-            self.con.execute(f"SET s3_access_key_id = '{os.getenv('AWS_ACCESS_KEY_ID')}';")
-            self.con.execute(f"SET s3_secret_access_key = '{os.getenv('AWS_SECRET_ACCESS_KEY')}';")
+            self.con.execute(
+                f"SET s3_access_key_id = '{os.getenv('AWS_ACCESS_KEY_ID')}';"
+            )
+            self.con.execute(
+                f"SET s3_secret_access_key = '{os.getenv('AWS_SECRET_ACCESS_KEY')}';"
+            )
 
-
-    def load_quadtiles_from_stac(self, stac_url: str, collection_id: str) -> gpd.GeoDataFrame:
+    def load_quadtiles_from_stac(
+        self, stac_url: str, collection_id: str
+    ) -> gpd.GeoDataFrame:
         """Fetches and processes a STAC collection to create a GeoDataFrame of quadtiles."""
         stac_client = pystac_client.Client.open(stac_url)
         collection = stac_client.get_child(collection_id)
@@ -76,6 +89,7 @@ class SpatialQueryEngine:
             "href": stac_item.assets["data"].href,
             "proj:epsg": stac_item.properties["proj:epsg"],
         }
+
     def get_nearest_geometry(self, x, y):
         point = Point(x, y)
         point_gdf = gpd.GeoDataFrame(geometry=[point], crs="EPSG:4326")
@@ -85,11 +99,37 @@ class SpatialQueryEngine:
         if self.storage_backend == "azure":
             href = href.replace("az://", "azure://")
 
+        minx, miny, maxx, maxy = (
+            gpd.GeoDataFrame(
+                point_gdf.to_crs(3857).buffer(10000).to_frame("geometry"),
+                crs=3857,
+            )
+            .to_crs(4326)
+            .total_bounds
+        )
+        
+
+        minx, miny, maxx, maxy = point_gdf.total_bounds
+
+        
         query = f"""
-        SELECT *, ST_Distance(ST_GeomFromWKB(geometry), ST_GeomFromText('{point_wkt}')) AS distance
-        FROM '{href}'
-        WHERE ST_DWithin(ST_GeomFromWKB(geometry), ST_GeomFromText('{point_wkt}'), {self.radius})
-        ORDER BY distance
+        SELECT 
+            tr_name, 
+            bbox, 
+            ST_AsWKB(ST_Transform(ST_GeomFromWKB(geometry), 'EPSG:4326', 'EPSG:4326')) AS geometry, 
+            ST_Distance(
+                ST_Transform(ST_GeomFromWKB(geometry), 'EPSG:4326', 'EPSG:3857'),
+                ST_Transform(ST_GeomFromText('{point_wkt}'), 'EPSG:4326', 'EPSG:3857')
+            ) AS distance
+        FROM 
+            read_parquet('{href}')
+        WHERE
+            bbox.minx <= {maxx} AND
+            bbox.miny <= {maxy} AND
+            bbox.maxx >= {minx} AND
+            bbox.maxy >= {miny}
+        ORDER BY 
+            distance
         LIMIT 1;
         """
 
@@ -99,7 +139,14 @@ class SpatialQueryEngine:
 
 
 class SpatialQueryApp(param.Parameterized):
-    transect_name = param.String(default=None, doc="Identifier for the selected transect")
+    MIN_WIDTH = 800
+    MIN_HEIGHT = 450
+    MAX_WIDTH = 1200
+    MAX_HEIGHT = 675
+
+    transect_name = param.String(
+        default=None, doc="Identifier for the selected transect"
+    )
     # Using GeoDataFrame to store the current geometry explicitly
     current_geometry = param.Parameter(default=None, precedence=-1)
 
@@ -113,21 +160,38 @@ class SpatialQueryApp(param.Parameterized):
 
     def setup_ui(self):
         self.title = pn.pane.Markdown("# Coastal Annotation Application")
-        self.tiles = gvts.EsriImagery.opts(width=500, height=500)
+        self.tiles = gvts.EsriImagery.opts()
         self.point_draw = gv.Points([]).opts(size=10, color="red", tools=["hover"])
-        self.point_draw_stream = streams.PointDraw(source=self.point_draw, num_objects=1)
+        self.point_draw_stream = streams.PointDraw(
+            source=self.point_draw, num_objects=1
+        )
         self.point_draw_stream.add_subscriber(self.on_point_draw)
         # Initialize the view with the default geometry visualization
-        self.transect_view = pn.pane.HoloViews(self.visualization_func(self.default_geometry) * self.tiles * self.point_draw)
+        self.transect_view = pn.pane.HoloViews(self.initialize_view())
+        
+        # self.transect_view = pn.pane.HoloViews(
+        #     self.visualization_func(self.default_geometry)
+        #     * self.point_draw
+        #     * self.tiles,
+        #     sizing_mode="stretch_both",
+        #     min_width=self.MIN_WIDTH,
+        #     min_height=self.MIN_HEIGHT,
+        #     max_width=self.MAX_WIDTH,
+        #     max_height=self.MAX_HEIGHT,
+        #     align="center",
+        # )
+
+    def initialize_view(self):
+        return self.visualization_func(self.default_geometry) * self.point_draw * self.tiles
 
     def on_point_draw(self, data):
         if data:
             x, y = data["x"][0], data["y"][0]
             geometry = self.spatial_engine.get_nearest_geometry(x, y)
-            self.current_geometry = geometry  # Directly update current geometry
+            # self.current_geometry = geometry  # Directly update current geometry
             self.update_view()
 
-    @param.depends('current_geometry', watch=True)
+    # @param.depends("current_geometry", watch=True)
     def update_view(self):
         # Visualization logic is now centralized and reacts to changes in current_geometry
         try:
@@ -136,22 +200,30 @@ class SpatialQueryApp(param.Parameterized):
         except Exception as e:
             print(f"Visualization failed due to {e}. Defaulting to default geometry.")
             new_view = self.visualization_func(self.default_geometry)
-        self.transect_view.object = new_view * self.tiles * self.point_draw
+        self.transect_view.object = new_view * self.point_draw * self.tiles
 
     def view(self):
-        return pn.Column(self.title, self.transect_view, sizing_mode='stretch_width')
+        return pn.Column(
+            self.title,
+            self.transect_view,
+            sizing_mode="stretch_width",
+            min_width=self.MIN_WIDTH,
+            min_height=self.MIN_HEIGHT,
+            max_width=self.MAX_WIDTH,
+            max_height=self.MAX_HEIGHT,
+            align="center",
+        )
 
 
 def default_visualization(transect):
-    
     polygon = gpd.GeoDataFrame(
-    geometry=[
-        create_offset_rectangle(
-            transect.to_crs(transect.estimate_utm_crs()).geometry.item(),
-            distance=200,
-        )
-    ],
-    crs=transect.estimate_utm_crs(),
+        geometry=[
+            create_offset_rectangle(
+                transect.to_crs(transect.estimate_utm_crs()).geometry.item(),
+                distance=200,
+            )
+        ],
+        crs=transect.estimate_utm_crs(),
     )
 
     polygon_plot = gv.Polygons(polygon[["geometry"]].to_crs(4326)).opts(
@@ -165,20 +237,19 @@ def default_visualization(transect):
     return polygon_plot * transect_plot
 
 
-
 def prepare_default_geometry(data, crs):
     """
     Prepares a default geometry from a data dictionary and sets its CRS This should
     exactly match what is being returned from the spatial engine.
     """
-    geom = wkt.loads(data['geometry'])
+    geom = wkt.loads(data["geometry"])
     gdf = gpd.GeoDataFrame([data], geometry=[geom], crs=pyproj.CRS.from_user_input(crs))
     return gdf
+
 
 pn.extension()
 hv.extension("bokeh")
 
-quadtile_href = "https://coclico.blob.core.windows.net/public/quadtiles-gcts-2000m.parquet"
 stac_href = "https://coclico.blob.core.windows.net/stac/v1/catalog.json"
 
 
@@ -207,6 +278,8 @@ default_geometry = {
 
 default_geometry = prepare_default_geometry(default_geometry, crs=4326).to_crs(4326)
 
-spatial_engine = SpatialQueryEngine(stac_href, collection_id="gcts-2000m", storage_backend="azure")
+spatial_engine = SpatialQueryEngine(
+    stac_href, collection_id="gcts-2000m", storage_backend="azure"
+)
 app = SpatialQueryApp(spatial_engine, default_visualization, default_geometry)
 pn.Column(app.view()).servable()
