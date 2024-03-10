@@ -167,8 +167,8 @@ class SpatialQueryApp(param.Parameterized):
         )
         self.point_draw_stream.add_subscriber(self.on_point_draw)
         # Initialize the view with the default geometry visualization
-        self.transect_view = pn.pane.HoloViews(self.initialize_view())
-        
+        self.transect_view = pn.pane.HoloViews(self.initialize_view()).servable(target="main")
+
         # self.transect_view = pn.pane.HoloViews(
         #     self.visualization_func(self.default_geometry)
         #     * self.point_draw
@@ -182,36 +182,44 @@ class SpatialQueryApp(param.Parameterized):
         # )
 
     def initialize_view(self):
-        return self.visualization_func(self.default_geometry) * self.point_draw * self.tiles
+        return self.visualization_func(self.default_geometry) * self.tiles * self.point_draw
 
     def on_point_draw(self, data):
         if data:
             x, y = data["x"][0], data["y"][0]
             geometry = self.spatial_engine.get_nearest_geometry(x, y)
-            # self.current_geometry = geometry  # Directly update current geometry
-            self.update_view()
+            self.current_geometry = geometry
 
-    # @param.depends("current_geometry", watch=True)
-    def update_view(self):
-        # Visualization logic is now centralized and reacts to changes in current_geometry
-        try:
-            # Assuming visualization_func can handle both GeoDataFrame or None as input
-            new_view = self.visualization_func(self.current_geometry)
-        except Exception as e:
-            print(f"Visualization failed due to {e}. Defaulting to default geometry.")
-            new_view = self.visualization_func(self.default_geometry)
-        self.transect_view.object = new_view * self.point_draw * self.tiles
+            try:
+                new_view = self.visualization_func(geometry)
+
+            except Exception as e:
+                print(f"Visualization failed due to {e}. Defaulting to default geometry.")
+                new_view = self.visualization_func(self.default_geometry)
+            self.transect_view.object = new_view * self.tiles * self.point_draw
+
+    # # @param.depends("current_geometry", watch=True)
+    # def update_view(self):
+    #     # Visualization logic is now centralized and reacts to changes in current_geometry
+    #     try:
+    #         # Assuming visualization_func can handle both GeoDataFrame or None as input
+    #         new_view = self.visualization_func(self.current_geometry)
+    #     except Exception as e:
+    #         print(f"Visualization failed due to {e}. Defaulting to default geometry.")
+    #         new_view = self.visualization_func(self.default_geometry)
+    #     self.transect_view.object = new_view * self.point_draw * self.tiles
 
     def view(self):
         return pn.Column(
-            self.title,
+            # self.title,
             self.transect_view,
-            sizing_mode="stretch_width",
-            min_width=self.MIN_WIDTH,
-            min_height=self.MIN_HEIGHT,
-            max_width=self.MAX_WIDTH,
-            max_height=self.MAX_HEIGHT,
-            align="center",
+
+            # sizing_mode="stretch_width",
+            # min_width=self.MIN_WIDTH,
+            # min_height=self.MIN_HEIGHT,
+            # max_width=self.MAX_WIDTH,
+            # max_height=self.MAX_HEIGHT,
+            # align="center",
         )
 
 
@@ -249,6 +257,8 @@ def prepare_default_geometry(data, crs):
 
 pn.extension()
 hv.extension("bokeh")
+
+template = pn.template.MaterialTemplate(title="Coastal Annotation Application")
 
 stac_href = "https://coclico.blob.core.windows.net/stac/v1/catalog.json"
 
