@@ -21,7 +21,7 @@ dependencies:
   - bokeh
   - geoviews
   - geoviews-core
-  - holoviews=<1.18 # until bug in stream xy is fixed
+  - holoviews
   - hvplot
   - ipyleaflet
   - ipympl
@@ -48,4 +48,4 @@ dependencies:
   - pystac-client
 
   - pip:
-      -  duckdb  # conda binaries are usually delayed
+      - duckdb # conda binaries are usually delayed

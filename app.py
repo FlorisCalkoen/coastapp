@@ -55,9 +55,24 @@ class SpatialQueryEngine:
         if self.storage_backend == "azure":
             self.con.execute("INSTALL azure;")
             self.con.execute("LOAD azure;")
-            self.con.execute(
-                f"SET azure_storage_connection_string = '{os.getenv('AZURE_STORAGE_CONNECTION_STRING')}';"
-            )
+            
+            if duckdb.__version__ > "0.10.0":
+                try:
+                    self.con.execute(
+                        f"""
+                                CREATE SECRET secret1 (
+                                TYPE AZURE,
+                                CONNECTION_STRING '{os.getenv('CLIENT_AZURE_STORAGE_CONNECTION_STRING')}');
+                    """
+                    )
+                except Exception as e:
+                    print(f"{e}")
+
+            else:
+                self.con.execute(
+                    f"SET AZURE_STORAGE_CONNECTION_STRING = '{os.getenv('CLIENT_AZURE_STORAGE_CONNECTION_STRING')}';"
+                )
+
         elif self.storage_backend == "aws":
             self.con.execute("INSTALL httpfs;")
             self.con.execute("LOAD httpfs;")
@@ -124,10 +139,10 @@ class SpatialQueryEngine:
         FROM 
             read_parquet('{href}')
         WHERE
-            bbox.minx <= {maxx} AND
-            bbox.miny <= {maxy} AND
-            bbox.maxx >= {minx} AND
-            bbox.maxy >= {miny}
+            bbox.xmin <= {maxx} AND
+            bbox.ymin <= {maxy} AND
+            bbox.xmax >= {minx} AND
+            bbox.ymax >= {miny}
         ORDER BY 
             distance
         LIMIT 1;
@@ -138,89 +153,59 @@ class SpatialQueryEngine:
         return gpd.GeoDataFrame(transect, crs=self.proj_epsg)
 
 
+
+
+
 class SpatialQueryApp(param.Parameterized):
     MIN_WIDTH = 800
     MIN_HEIGHT = 450
     MAX_WIDTH = 1200
     MAX_HEIGHT = 675
 
-    transect_name = param.String(
-        default=None, doc="Identifier for the selected transect"
-    )
-    # Using GeoDataFrame to store the current geometry explicitly
-    current_geometry = param.Parameter(default=None, precedence=-1)
+    transect_name = param.String(default=None, doc="Identifier for the selected transect")
 
     def __init__(self, spatial_engine, visualization_func, default_geometry):
         super().__init__()
         self.spatial_engine = spatial_engine
         self.visualization_func = visualization_func
         self.default_geometry = default_geometry
+        # self.tiles = gvts.EsriImagery.opts(width=self.MAX_WIDTH, height=self.MAX_HEIGHT)
+        self.tiles = gvts.EsriImagery()
+        self.point_draw = gv.Points([]).opts(size=10, color="red", tools=["hover"], width=self.MAX_WIDTH, height=self.MAX_HEIGHT)
+        self.transect_view = None
         self.setup_ui()
-        self.current_geometry = default_geometry
 
     def setup_ui(self):
-        self.title = pn.pane.Markdown("# Coastal Annotation Application")
-        self.tiles = gvts.EsriImagery.opts()
-        self.point_draw = gv.Points([]).opts(size=10, color="red", tools=["hover"])
-        self.point_draw_stream = streams.PointDraw(
-            source=self.point_draw, num_objects=1
-        )
+        # Setup the dynamic visualization initially
+        self.transect_view = self.initialize_view()
+        
+        # Setup point draw stream and subscribe to point draw events
+        self.point_draw_stream = streams.PointDraw(source=self.point_draw, num_objects=1)
         self.point_draw_stream.add_subscriber(self.on_point_draw)
-        # Initialize the view with the default geometry visualization
-        self.transect_view = pn.pane.HoloViews(self.initialize_view()).servable(target="main")
-
-        # self.transect_view = pn.pane.HoloViews(
-        #     self.visualization_func(self.default_geometry)
-        #     * self.point_draw
-        #     * self.tiles,
-        #     sizing_mode="stretch_both",
-        #     min_width=self.MIN_WIDTH,
-        #     min_height=self.MIN_HEIGHT,
-        #     max_width=self.MAX_WIDTH,
-        #     max_height=self.MAX_HEIGHT,
-        #     align="center",
-        # )
 
     def initialize_view(self):
-        return self.visualization_func(self.default_geometry) * self.tiles * self.point_draw
+        # Return a HoloViews pane for dynamic updates
+        return pn.pane.HoloViews(self.visualization_func(self.default_geometry) * self.tiles * self.point_draw)
 
     def on_point_draw(self, data):
         if data:
-            x, y = data["x"][0], data["y"][0]
+            x, y = data["Longitude"][0], data["Latitude"][0]
+            self.update_view(x, y)
+    
+    def update_view(self, x, y):
+        try:
             geometry = self.spatial_engine.get_nearest_geometry(x, y)
-            self.current_geometry = geometry
-
-            try:
-                new_view = self.visualization_func(geometry)
-
-            except Exception as e:
-                print(f"Visualization failed due to {e}. Defaulting to default geometry.")
-                new_view = self.visualization_func(self.default_geometry)
-            self.transect_view.object = new_view * self.tiles * self.point_draw
-
-    # # @param.depends("current_geometry", watch=True)
-    # def update_view(self):
-    #     # Visualization logic is now centralized and reacts to changes in current_geometry
-    #     try:
-    #         # Assuming visualization_func can handle both GeoDataFrame or None as input
-    #         new_view = self.visualization_func(self.current_geometry)
-    #     except Exception as e:
-    #         print(f"Visualization failed due to {e}. Defaulting to default geometry.")
-    #         new_view = self.visualization_func(self.default_geometry)
-    #     self.transect_view.object = new_view * self.point_draw * self.tiles
+            new_view = self.visualization_func(geometry)
+        except Exception as e:
+            print(f"Visualization failed due to {e}. Reverting to default geometry.")
+            new_view = self.visualization_func(self.default_geometry)
+        
+        # Update the transect_view HoloViews pane object directly without recreating the pane
+        self.transect_view.object = new_view * self.tiles * self.point_draw
 
     def view(self):
-        return pn.Column(
-            # self.title,
-            self.transect_view,
-
-            # sizing_mode="stretch_width",
-            # min_width=self.MIN_WIDTH,
-            # min_height=self.MIN_HEIGHT,
-            # max_width=self.MAX_WIDTH,
-            # max_height=self.MAX_HEIGHT,
-            # align="center",
-        )
+        # Return the transect_view pane for rendering in the app
+        return self.transect_view
 
 
 def default_visualization(transect):
@@ -258,8 +243,6 @@ def prepare_default_geometry(data, crs):
 pn.extension()
 hv.extension("bokeh")
 
-template = pn.template.MaterialTemplate(title="Coastal Annotation Application")
-
 stac_href = "https://coclico.blob.core.windows.net/stac/v1/catalog.json"
 
 
@@ -289,7 +272,8 @@ default_geometry = {
 default_geometry = prepare_default_geometry(default_geometry, crs=4326).to_crs(4326)
 
 spatial_engine = SpatialQueryEngine(
-    stac_href, collection_id="gcts-2000m", storage_backend="azure"
+    stac_href, collection_id="gcts", storage_backend="azure"
 )
 app = SpatialQueryApp(spatial_engine, default_visualization, default_geometry)
-pn.Column(app.view()).servable()
+app.view().show()
+# pn.Column(app.view()).servable()
