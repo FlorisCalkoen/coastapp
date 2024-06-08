@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import Literal
 
@@ -16,10 +17,12 @@ from holoviews import streams
 from shapely import wkt
 from shapely.geometry import Point
 from shapely.wkb import loads
-
 from utils import create_offset_rectangle
 
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.DEBUG)
 dotenv.load_dotenv(override=True)
+sas_token = os.getenv("APPSETTING_GCTS_AZURE_STORAGE_SAS_TOKEN")
 
 
 class SpatialQueryEngine:
@@ -55,23 +58,24 @@ class SpatialQueryEngine:
         if self.storage_backend == "azure":
             self.con.execute("INSTALL azure;")
             self.con.execute("LOAD azure;")
-            
-            if duckdb.__version__ > "0.10.0":
-                try:
-                    self.con.execute(
-                        f"""
-                                CREATE SECRET secret1 (
-                                TYPE AZURE,
-                                CONNECTION_STRING '{os.getenv('CLIENT_AZURE_STORAGE_CONNECTION_STRING')}');
-                    """
-                    )
-                except Exception as e:
-                    print(f"{e}")
 
-            else:
-                self.con.execute(
-                    f"SET AZURE_STORAGE_CONNECTION_STRING = '{os.getenv('CLIENT_AZURE_STORAGE_CONNECTION_STRING')}';"
-                )
+            # # NOTE: currently this is commented because settings the credentials doesn't work
+            # if duckdb.__version__ > "0.10.0":
+            #     try:
+            #         self.con.execute(
+            #             f"""
+            #                     CREATE SECRET secret1 (
+            #                     TYPE AZURE,
+            #                     CONNECTION_STRING '{os.getenv('APPSETTING_DUCKDB_AZURE_STORAGE_CONNECTION_STRING')}');
+            #         """
+            #         )
+            #     except Exception as e:
+            #         print(f"{e}")
+
+            # else:
+            #     self.con.execute(
+            #         f"SET AZURE_STORAGE_CONNECTION_STRING = '{os.getenv('APPSETTING_DUCKDB_AZURE_STORAGE_CONNECTION_STRING')}';"
+            #     )
 
         elif self.storage_backend == "aws":
             self.con.execute("INSTALL httpfs;")
@@ -112,7 +116,11 @@ class SpatialQueryEngine:
         point_wkt = point_gdf.to_crs(self.proj_epsg).geometry.to_wkt().iloc[0]
         # NOTE: for DuckDB queries a small hack that replaces az:// with azure://
         if self.storage_backend == "azure":
-            href = href.replace("az://", "azure://")
+            # NOTE: leave this here because that's required for duckdb, when we manage to
+            # set the azure credentials credentials in the DuckDB connection.
+            # href = href.replace("az://", "azure://")
+            href = href.replace("az://", "https://coclico.blob.core.windows.net/")
+            href = href + "?" + sas_token
 
         minx, miny, maxx, maxy = (
             gpd.GeoDataFrame(
@@ -122,11 +130,9 @@ class SpatialQueryEngine:
             .to_crs(4326)
             .total_bounds
         )
-        
 
         minx, miny, maxx, maxy = point_gdf.total_bounds
 
-        
         query = f"""
         SELECT 
             tr_name, 
@@ -153,16 +159,15 @@ class SpatialQueryEngine:
         return gpd.GeoDataFrame(transect, crs=self.proj_epsg)
 
 
-
-
-
 class SpatialQueryApp(param.Parameterized):
     MIN_WIDTH = 800
     MIN_HEIGHT = 450
     MAX_WIDTH = 1200
     MAX_HEIGHT = 675
 
-    transect_name = param.String(default=None, doc="Identifier for the selected transect")
+    transect_name = param.String(
+        default=None, doc="Identifier for the selected transect"
+    )
 
     def __init__(self, spatial_engine, visualization_func, default_geometry):
         super().__init__()
@@ -171,35 +176,52 @@ class SpatialQueryApp(param.Parameterized):
         self.default_geometry = default_geometry
         # self.tiles = gvts.EsriImagery.opts(width=self.MAX_WIDTH, height=self.MAX_HEIGHT)
         self.tiles = gvts.EsriImagery()
-        self.point_draw = gv.Points([]).opts(size=10, color="red", tools=["hover"], width=self.MAX_WIDTH, height=self.MAX_HEIGHT)
+        self.point_draw = gv.Points([]).opts(
+            size=10,
+            color="red",
+            tools=["hover"],
+            width=self.MAX_WIDTH,
+            height=self.MAX_HEIGHT,
+        )
         self.transect_view = None
         self.setup_ui()
 
     def setup_ui(self):
         # Setup the dynamic visualization initially
         self.transect_view = self.initialize_view()
-        
+
         # Setup point draw stream and subscribe to point draw events
-        self.point_draw_stream = streams.PointDraw(source=self.point_draw, num_objects=1)
+
+        self.point_draw_stream = streams.PointDraw(
+            source=self.point_draw, num_objects=1
+        )
         self.point_draw_stream.add_subscriber(self.on_point_draw)
 
     def initialize_view(self):
         # Return a HoloViews pane for dynamic updates
-        return pn.pane.HoloViews(self.visualization_func(self.default_geometry) * self.tiles * self.point_draw)
+        return pn.pane.HoloViews(
+            self.visualization_func(self.default_geometry)
+            * self.tiles
+            * self.point_draw
+        )
 
     def on_point_draw(self, data):
         if data:
             x, y = data["Longitude"][0], data["Latitude"][0]
             self.update_view(x, y)
-    
+
     def update_view(self, x, y):
         try:
             geometry = self.spatial_engine.get_nearest_geometry(x, y)
             new_view = self.visualization_func(geometry)
         except Exception as e:
-            print(f"Visualization failed due to {e}. Reverting to default geometry.")
+            logger.exception(
+                f"Visualization failed due to {e}. Reverting to default geometry."
+            )
+            # NOTE: leave here for debugging purposes
+            # logger.error(f"env: {os.environ}")
             new_view = self.visualization_func(self.default_geometry)
-        
+
         # Update the transect_view HoloViews pane object directly without recreating the pane
         self.transect_view.object = new_view * self.tiles * self.point_draw
 
@@ -255,10 +277,10 @@ default_geometry = {
     "coastline_name": 33475,
     "geometry": "LINESTRING (4.28855455531973 52.10728388554343, 4.267753743098557 52.119904391779215)",
     "bbox": {
-        "maxx": 4.28855455531973,
-        "maxy": 52.119904391779215,
-        "minx": 4.267753743098557,
-        "miny": 52.10728388554343,
+        "xmax": 4.28855455531973,
+        "ymax": 52.119904391779215,
+        "xmin": 4.267753743098557,
+        "ymin": 52.10728388554343,
     },
     "quadkey": "120201102230",
     "isoCountryCodeAlpha2": "NL",
@@ -275,5 +297,4 @@ spatial_engine = SpatialQueryEngine(
     stac_href, collection_id="gcts", storage_backend="azure"
 )
 app = SpatialQueryApp(spatial_engine, default_visualization, default_geometry)
-app.view().show()
-# pn.Column(app.view()).servable()
+pn.Column(app.view()).servable()

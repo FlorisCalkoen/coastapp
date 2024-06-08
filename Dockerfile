@@ -45,10 +45,14 @@ COPY setup_run_server.sh /app/
 # Set the working directory to /app
 WORKDIR /app
 
-# Open port 80 to traffic
+# Open port 8000 to traffic
 EXPOSE 8000
 
 # Ensure the environment is activated when the container starts and run your setup script
 # Modify the ENTRYPOINT to run your app directly if you're not using the setup_run_server.sh to run specific commands
 # ENTRYPOINT ["/bin/bash", "-c", "source /env/bin/activate && exec panel serve app.py --address 0.0.0.0 --port 80 --allow-websocket-origin='*'"]
+# ENTRYPOINT ["/bin/bash", "-c", "source /env/bin/activate && exec python -m panel serve app.py --address 0.0.0.0 --port 8000 --allow-websocket-origin='*'"]
+# NOTE: now we are passing the connection strings as well in the entrypoint
 ENTRYPOINT ["/bin/bash", "-c", "source /env/bin/activate && exec python -m panel serve app.py --address 0.0.0.0 --port 8000 --allow-websocket-origin='*'"]
+# ENTRYPOINT ["/bin/bash", "-c", "source /env/bin/activate && echo CLIENT_AZURE_STORAGE_CONNECTION_STRING=$CLIENT_AZURE_STORAGE_CONNECTION_STRING && exec python -m panel serve app.py --address 0.0.0.0 --port 8000 --allow-websocket-origin='*'"]
+
