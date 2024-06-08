@@ -265,7 +265,7 @@ def prepare_default_geometry(data, crs):
 pn.extension()
 hv.extension("bokeh")
 
-stac_href = "https://coclico.blob.core.windows.net/stac/v1/catalog.json"
+stac_url = "https://coclico.blob.core.windows.net/stac/v1/catalog.json"
 
 
 default_geometry = {
@@ -294,7 +294,7 @@ default_geometry = {
 default_geometry = prepare_default_geometry(default_geometry, crs=4326).to_crs(4326)
 
 spatial_engine = SpatialQueryEngine(
-    stac_href, collection_id="gcts", storage_backend="azure"
+    stac_url, collection_id="gcts", storage_backend="azure"
 )
 app = SpatialQueryApp(spatial_engine, default_visualization, default_geometry)
 pn.Column(app.view()).servable()
