@@ -162,3 +162,5 @@ cython_debug/
 .env
 
 .virtual_documents
+
+.vscode

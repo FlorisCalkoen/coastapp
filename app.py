@@ -12,17 +12,20 @@ import panel as pn
 import param
 import pyproj
 import pystac_client
-import shapely.geometry
+import shapely
 from holoviews import streams
 from shapely import wkt
 from shapely.geometry import Point
 from shapely.wkb import loads
+from users import UserManager
 from utils import create_offset_rectangle
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.DEBUG)
+
+
 dotenv.load_dotenv(override=True)
 sas_token = os.getenv("APPSETTING_GCTS_AZURE_STORAGE_SAS_TOKEN")
+storage_options = {"acount_name": "coclico", "sas_token": sas_token}
 
 
 class SpatialQueryEngine:
@@ -31,6 +34,7 @@ class SpatialQueryEngine:
         stac_url: str,
         collection_id: str,
         storage_backend: Literal["azure", "aws"] = "azure",
+        storage_options: dict | None = None,
     ):
         """
         Initializes the SpatialQueryEngine with STAC collection details.
@@ -40,13 +44,15 @@ class SpatialQueryEngine:
             collection_id: ID of the collection within the STAC catalog.
             storage_backend: Specifies the storage backend to use. Defaults to 'azure'.
         """
+        if not storage_options:
+            storage_options = {}
+
         self.storage_backend = storage_backend
         self.con = duckdb.connect(database=":memory:", read_only=False)
         self.con.execute("INSTALL spatial;")
         self.con.execute("LOAD spatial;")
         self.configure_storage_backend()
 
-        # Directly load quadtiles from the STAC collection
         self.quadtiles = self.load_quadtiles_from_stac(stac_url, collection_id)
         if len(self.quadtiles["proj:epsg"].unique()) > 1:
             raise ValueError("Multiple CRSs found in the STAC collection.")
@@ -58,24 +64,6 @@ class SpatialQueryEngine:
         if self.storage_backend == "azure":
             self.con.execute("INSTALL azure;")
             self.con.execute("LOAD azure;")
-
-            # # NOTE: currently this is commented because settings the credentials doesn't work
-            # if duckdb.__version__ > "0.10.0":
-            #     try:
-            #         self.con.execute(
-            #             f"""
-            #                     CREATE SECRET secret1 (
-            #                     TYPE AZURE,
-            #                     CONNECTION_STRING '{os.getenv('APPSETTING_DUCKDB_AZURE_STORAGE_CONNECTION_STRING')}');
-            #         """
-            #         )
-            #     except Exception as e:
-            #         print(f"{e}")
-
-            # else:
-            #     self.con.execute(
-            #         f"SET AZURE_STORAGE_CONNECTION_STRING = '{os.getenv('APPSETTING_DUCKDB_AZURE_STORAGE_CONNECTION_STRING')}';"
-            #     )
 
         elif self.storage_backend == "aws":
             self.con.execute("INSTALL httpfs;")
@@ -135,7 +123,7 @@ class SpatialQueryEngine:
 
         query = f"""
         SELECT 
-            tr_name, 
+            transect_id, 
             bbox, 
             ST_AsWKB(ST_Transform(ST_GeomFromWKB(geometry), 'EPSG:4326', 'EPSG:4326')) AS geometry, 
             ST_Distance(
@@ -160,11 +148,6 @@ class SpatialQueryEngine:
 
 
 class SpatialQueryApp(param.Parameterized):
-    MIN_WIDTH = 800
-    MIN_HEIGHT = 450
-    MAX_WIDTH = 1200
-    MAX_HEIGHT = 675
-
     transect_name = param.String(
         default=None, doc="Identifier for the selected transect"
     )
@@ -174,14 +157,12 @@ class SpatialQueryApp(param.Parameterized):
         self.spatial_engine = spatial_engine
         self.visualization_func = visualization_func
         self.default_geometry = default_geometry
-        # self.tiles = gvts.EsriImagery.opts(width=self.MAX_WIDTH, height=self.MAX_HEIGHT)
         self.tiles = gvts.EsriImagery()
         self.point_draw = gv.Points([]).opts(
             size=10,
             color="red",
             tools=["hover"],
-            width=self.MAX_WIDTH,
-            height=self.MAX_HEIGHT,
+            responsive=True,
         )
         self.transect_view = None
         self.setup_ui()
@@ -191,7 +172,6 @@ class SpatialQueryApp(param.Parameterized):
         self.transect_view = self.initialize_view()
 
         # Setup point draw stream and subscribe to point draw events
-
         self.point_draw_stream = streams.PointDraw(
             source=self.point_draw, num_objects=1
         )
@@ -265,16 +245,15 @@ def prepare_default_geometry(data, crs):
 pn.extension()
 hv.extension("bokeh")
 
-stac_url = "https://coclico.blob.core.windows.net/stac/v1/catalog.json"
+stac_url = "https://coclico.blob.core.windows.net/stac/test/catalog.json"
 
 
 default_geometry = {
-    "tr_name": "cl33475tr00223848",
+    "transect_id": "cl33475tr00223848",
     "lon": 4.27815580368042,
     "lat": 52.11359405517578,
     "bearing": 313.57275390625,
-    "utm_crs": 32631,
-    "coastline_name": 33475,
+    "utm_epsg": 32631,
     "geometry": "LINESTRING (4.28855455531973 52.10728388554343, 4.267753743098557 52.119904391779215)",
     "bbox": {
         "xmax": 4.28855455531973,
@@ -283,18 +262,36 @@ default_geometry = {
         "ymin": 52.10728388554343,
     },
     "quadkey": "120201102230",
-    "isoCountryCodeAlpha2": "NL",
-    "admin_level_1_name": "Nederland",
-    "isoSubCountryCode": "NL-ZH",
-    "admin_level_2_name": "Zuid-Holland",
-    "bounding_quadkey": "1202021102203",
+    "country": "NL",
+    "common_country_name": "Nederland",
+    "common_region_name": "NL-ZH",
 }
 
 
 default_geometry = prepare_default_geometry(default_geometry, crs=4326).to_crs(4326)
 
 spatial_engine = SpatialQueryEngine(
-    stac_url, collection_id="gcts", storage_backend="azure"
+    stac_url=stac_url,
+    collection_id="gcts",
+    storage_backend="azure",
+    storage_options=storage_options,
 )
-app = SpatialQueryApp(spatial_engine, default_visualization, default_geometry)
-pn.Column(app.view()).servable()
+
+spatial_query_app = SpatialQueryApp(
+    spatial_engine, default_visualization, default_geometry
+)
+
+# Initialize the UserManager with the storage options and container details
+user_manager = UserManager(
+    storage_options=storage_options, container_name="typology", prefix="users"
+)
+
+# Define the Panel template
+app = pn.template.FastListTemplate(
+    title="Spatial Query App",
+    sidebar=[user_manager.view()],
+    main=[spatial_query_app.view()],
+    accent_base_color="#007BFF",
+    header_background="#007BFF",
+)
+app.servable()
