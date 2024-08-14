@@ -1,20 +1,23 @@
 import datetime
 import json
 import logging
+from abc import ABC, abstractmethod
 
 import fsspec
 
 logger = logging.getLogger(__name__)
 
 
-class CRUDManager:
-    def __init__(self, container_name, prefix, storage_options):
+class CRUDManager(ABC):
+    def __init__(self, container_name, storage_options, prefix=None):
         self.container_name = container_name
         self.prefix = prefix
         self.storage_options = storage_options
 
-        # Construct the base path for the storage location
-        self.base_path = f"az://{self.container_name}/{self.prefix}/"
+    @property
+    @abstractmethod
+    def base_path(self) -> str:
+        """Abstract property to define the base path for storage."""
 
     def generate_filename(self, record: dict) -> str:
         raise NotImplementedError("Subclasses must implement this method.")
@@ -31,11 +34,11 @@ class CRUDManager:
 
         with fsspec.open(full_path, mode="w", **self.storage_options) as f:
             f.write(record_json)
-        logging.info(f"Saved record: {full_path}")
+        logger.info(f"Saved record: {full_path}")
 
     def create_record(self, record: dict):
         """Creates a new record and saves it."""
-        timestamp = datetime.datetime.utcnow().strftime("%Y%m%d%H%M%S")
+        timestamp = datetime.datetime.utcnow().isoformat()
         record["timestamp"] = timestamp
         self.save_record(record)
 
@@ -59,4 +62,4 @@ class CRUDManager:
         full_path = self._get_storage_path(record_name)
         fs = fsspec.filesystem("az", **self.storage_options)
         fs.rm(full_path)
-        logging.info(f"Deleted record: {full_path}")
+        logger.info(f"Deleted record: {full_path}")

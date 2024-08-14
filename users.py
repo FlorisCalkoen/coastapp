@@ -59,8 +59,15 @@ class UserManager(CRUDManager):
         name = re.sub(r"[^a-z0-9\-]", "", name)
         return name
 
+    @property
+    def base_path(self) -> str:
+        """Defines the base path for user storage."""
+        if self.prefix:
+            return f"az://{self.container_name}/{self.prefix}/"
+        return f"az://{self.container_name}/"
+
     def generate_filename(self, record: dict) -> str:
-        """Generate a filename for the record based on its content."""
+        """Generate a filename for the user based on their formatted name."""
         formatted_name = record["formatted_name"]
         return f"user_{formatted_name}.json"
 
@@ -118,3 +125,4 @@ class UserManager(CRUDManager):
 
     def view(self):
         return self.view_
+        
