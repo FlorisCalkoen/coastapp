@@ -25,7 +25,8 @@ logger = logging.getLogger(__name__)
 
 dotenv.load_dotenv(override=True)
 sas_token = os.getenv("APPSETTING_GCTS_AZURE_STORAGE_SAS_TOKEN")
-storage_options = {"acount_name": "coclico", "sas_token": sas_token}
+storage_options = {"account_name":"coclico", "sas_token": sas_token}
+
 
 
 class SpatialQueryEngine:

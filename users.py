@@ -10,14 +10,10 @@ from crud import CRUDManager
 
 logger = logging.getLogger(__name__)
 
-
 class UserManager(CRUDManager):
     def __init__(self, storage_options, container_name, prefix):
-        super().__init__(
-            container_name=container_name,
-            prefix=prefix,
-            storage_options=storage_options,
-        )
+        super().__init__(container_name=container_name, storage_options=storage_options)
+        self.prefix = prefix
 
         # Load existing users
         self.existing_users = self.load_existing_users()
@@ -35,14 +31,15 @@ class UserManager(CRUDManager):
         self.user_list.param.watch(self.select_user, "value")
         self.add_user_button.on_click(self.add_new_user)
 
-        # User Management Box (Component)
-        self.view_ = pn.Column(
-            self.user_list,
-            self.user_input,
-            self.add_user_button,
-            self.feedback_message,
-            name="User Management",
-        )
+    @property
+    def get_prefix(self) -> str:
+        """Defines the prefix for user storage."""
+        return self.prefix
+
+    def generate_filename(self, record: dict) -> str:
+        """Generate a filename for the user based on their formatted name."""
+        formatted_name = record["formatted_name"]
+        return f"user_{formatted_name}.json"
 
     def format_name(self, name: str) -> str:
         """Formats the user name by converting to lowercase, removing accents,
@@ -59,22 +56,10 @@ class UserManager(CRUDManager):
         name = re.sub(r"[^a-z0-9\-]", "", name)
         return name
 
-    @property
-    def base_path(self) -> str:
-        """Defines the base path for user storage."""
-        if self.prefix:
-            return f"az://{self.container_name}/{self.prefix}/"
-        return f"az://{self.container_name}/"
-
-    def generate_filename(self, record: dict) -> str:
-        """Generate a filename for the user based on their formatted name."""
-        formatted_name = record["formatted_name"]
-        return f"user_{formatted_name}.json"
-
     def load_existing_users(self):
-        """Load all existing users from the storage backend."""
+        """Load all existing users from the storage backend using the az:// protocol."""
         fs = fsspec.filesystem("az", **self.storage_options)
-        user_files = fs.glob(f"{self.base_path}user_*.json")
+        user_files = fs.glob(f"{self.base_uri}/user_*.json")
         users = [
             user.split("/")[-1].replace("user_", "").replace(".json", "")
             for user in user_files
@@ -101,7 +86,7 @@ class UserManager(CRUDManager):
                 "name": user_input,
                 "formatted_name": formatted_name,
                 "user_id": user_id,
-                "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
+                "timestamp": datetime.datetime.utcnow().isoformat(),
             }
             self.create_record(record)
             self.feedback_message.object = (
@@ -124,5 +109,10 @@ class UserManager(CRUDManager):
         )
 
     def view(self):
-        return self.view_
-        
+        return pn.Column(
+            self.user_list,
+            self.user_input,
+            self.add_user_button,
+            self.feedback_message,
+            name="User Management",
+        )
