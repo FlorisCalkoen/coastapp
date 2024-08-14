@@ -12,62 +12,6 @@ sas_token = os.getenv("APPSETTING_GCTS_AZURE_STORAGE_SAS_TOKEN")
 storage_options = {"account_name": "coclico", "sas_token": sas_token}
 
 
-# class ClassificationSchemaManager(CRUDManager):
-#     def __init__(self, storage_options, container_name, prefix):
-#         super().__init__(container_name=container_name, storage_options=storage_options)
-#         self.prefix = prefix
-
-#         # Load the classification schema using the read_record method
-#         self.class_mapping = self.load_schema()
-
-#         # Panel widgets
-#         self.attribute_dropdowns = self._initialize_attribute_dropdowns()
-
-#     @property
-#     def get_prefix(self) -> str:
-#         """Defines the prefix for the classification schema storage."""
-#         return self.prefix
-
-#     def generate_filename(self, record: dict = None) -> str:
-#         """Generate a filename for the classification schema."""
-#         # For this manager, the filename is always the same
-#         return "classification-schema.json"
-
-#     def load_schema(self) -> dict:
-#         """Load the classification schema from Azure storage using the read_record method."""
-#         try:
-#             schema_data = self.read_record(self.generate_filename())
-#             print("Schema successfully loaded from cloud.")
-#             return schema_data
-#         except Exception as e:
-#             print(f"Error loading schema: {e}")
-#             return {}
-
-#     def _initialize_attribute_dropdowns(self) -> dict[str, pn.widgets.Select]:
-#         """
-#         Initialize attribute dropdown widgets.
-
-#         Returns:
-#             dict: A dictionary containing attribute dropdown widgets.
-#         """
-#         dropdown_options = {
-#             attribute: [None, *list(classes.keys())]
-#             for attribute, classes in self.class_mapping.items()
-#         }
-#         return {
-#             attribute: pn.widgets.Select(
-#                 name=attribute,
-#                 options=dropdown_options[attribute],
-#                 value=None,
-#             )
-#             for attribute in self.class_mapping
-#         }
-
-#     def view(self):
-#         """View for displaying the attribute dropdowns."""
-#         return pn.Column(*self.attribute_dropdowns.values())
-
-
 class ClassificationSchemaManager(CRUDManager):
     def __init__(self, storage_options, container_name, prefix):
         super().__init__(container_name=container_name, storage_options=storage_options)
@@ -78,10 +22,9 @@ class ClassificationSchemaManager(CRUDManager):
 
         # Panel widgets
         self.attribute_dropdowns = self._initialize_attribute_dropdowns()
-        self.class_description_pane = pn.pane.Markdown(
-            "Select an option to see the description."
+        self.classification_display_pane = pn.pane.Markdown(
+            "**Current Classification:**\n\nSelect an option to see the description."
         )
-        self.selected_classes_pane = pn.pane.Markdown("**Current Classification:**\n\n")
 
         (
             self.attribute_selector,
@@ -136,9 +79,9 @@ class ClassificationSchemaManager(CRUDManager):
 
     def _on_dropdown_change(self, event):
         """
-        Callback function to handle change in dropdown value and update the selected classes pane.
+        Callback function to handle change in dropdown value and update the classification display pane.
         """
-        selected_classes_string = "**Current Classification:**\n\n"
+        classification_string = "**Current Classification:**\n\n"
         description_string = ""
 
         for attribute, dropdown in self.attribute_dropdowns.items():
@@ -146,15 +89,14 @@ class ClassificationSchemaManager(CRUDManager):
             if selected_class:
                 description = self.class_mapping[attribute].get(selected_class, "")
                 if description:
-                    description_string += (
+                    classification_string += (
                         f"**{attribute} - {selected_class}:** {description}\n\n"
                     )
-                    selected_classes_string += f"{attribute}: {selected_class}\n"
 
-        self.class_description_pane.object = (
-            description_string or "Select an option to see the description."
+        self.classification_display_pane.object = (
+            classification_string
+            or "**Current Classification:**\n\nSelect an option to see the description."
         )
-        self.selected_classes_pane.object = selected_classes_string
 
     def _initialize_class_input_widgets(self):
         """
@@ -213,26 +155,20 @@ class ClassificationSchemaManager(CRUDManager):
         """View for displaying the full UI."""
         return pn.Column(
             pn.pane.Markdown(
-                "## Classify this transect\n"
-                "Select the appropriate class from the list of options. "
-                "Consider the area that is covered by the polygon. If there is no right class, "
-                "suggest a new class using the widget below."
+                "## Classify this Transect\n"
+                "Choose the appropriate class from the options provided, considering "
+                "the area covered by the polygon. If no suitable class exists, consider "
+                "proposing a new one using the widget below."
             ),
             *self.attribute_dropdowns.values(),
-            self.class_description_pane,
-            self.selected_classes_pane,
-            pn.pane.Markdown("### Add a new class:"),
+            self.classification_display_pane,
+            pn.pane.Markdown(
+                "### [Optional] Propose a new class: \n Please ensure the class is essential, as"
+                "we aim to keep the number of classes minimal. Your input is valued."
+            ),
             self.attribute_selector,
             self.class_name_input,
             self.class_description_input,
             self.add_class_button,
             name="Classification Management",
         )
-
-
-classification_schema_manager = ClassificationSchemaManager(
-    storage_options=storage_options, container_name="typology", prefix=""
-)
-
-# Serve the Panel app
-pn.serve(classification_schema_manager.view)

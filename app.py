@@ -13,7 +13,9 @@ import param
 import pyproj
 import pystac_client
 import shapely
+from classification import ClassificationManager
 from holoviews import streams
+from schema import ClassificationSchemaManager
 from shapely import wkt
 from shapely.geometry import Point
 from shapely.wkb import loads
@@ -22,11 +24,9 @@ from utils import create_offset_rectangle
 
 logger = logging.getLogger(__name__)
 
-
 dotenv.load_dotenv(override=True)
 sas_token = os.getenv("APPSETTING_GCTS_AZURE_STORAGE_SAS_TOKEN")
-storage_options = {"account_name":"coclico", "sas_token": sas_token}
-
+storage_options = {"account_name": "coclico", "sas_token": sas_token}
 
 
 class SpatialQueryEngine:
@@ -287,10 +287,24 @@ user_manager = UserManager(
     storage_options=storage_options, container_name="typology", prefix="users"
 )
 
+classification_schema_manager = ClassificationSchemaManager(
+    storage_options=storage_options, container_name="typology", prefix=""
+)
+
+# Initialize the ClassificationManager
+classification_manager = ClassificationManager(
+    storage_options=storage_options,
+    container_name="typology",
+    prefix="labels",
+    user_manager=user_manager,
+    classification_schema_manager=classification_schema_manager,
+    spatial_query_app=spatial_query_app
+)
+
 # Define the Panel template
 app = pn.template.FastListTemplate(
-    title="Spatial Query App",
-    sidebar=[user_manager.view()],
+    title="Coastal Typology Annotation Tool",
+    sidebar=[user_manager.view(), classification_schema_manager.view()],
     main=[spatial_query_app.view()],
     accent_base_color="#007BFF",
     header_background="#007BFF",
