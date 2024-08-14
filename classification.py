@@ -17,7 +17,7 @@ class ClassificationManager(CRUDManager):
         # Panel widgets
         self.save_button = pn.widgets.Button(name="Save Classification", button_type="primary", disabled=True)
         self.is_challenging_button = pn.widgets.Toggle(name="Is Challenging", button_type="default")
-        self.feedback_message = pn.pane.Markdown()
+        self.save_feedback_message = pn.pane.Markdown()
 
         # Setup callbacks
         self.save_button.on_click(self.save_classification)
@@ -72,7 +72,7 @@ class ClassificationManager(CRUDManager):
         required_fields = ['user', 'transect_id', 'shore_fabric', 'coastal_type', 'defenses', 'lon', 'lat']
         for field in required_fields:
             if not record.get(field):
-                self.feedback_message.object = f"**Error:** {field.replace('_', ' ').capitalize()} is required."
+                self.save_feedback_message.object = f"**Error:** {field.replace('_', ' ').capitalize()} is required."
                 return False
         return True
 
@@ -85,7 +85,7 @@ class ClassificationManager(CRUDManager):
             return
 
         self.create_record(record)
-        self.feedback_message.object = (
+        self.save_feedback_message.object = (
             f"**Success:** Classification saved successfully. File: {self.generate_filename(record)}"
         )
         self.save_button.disabled = True  # Disable save after successful save
@@ -103,7 +103,7 @@ class ClassificationManager(CRUDManager):
             pn.pane.Markdown("## Save Classification"),
             self.is_challenging_button,
             self.save_button,
-            self.feedback_message,
+            self.save_feedback_message,
             name="Classification Management",
         )
 

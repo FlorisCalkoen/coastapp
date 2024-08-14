@@ -166,6 +166,7 @@ class SpatialQueryApp(param.Parameterized):
             responsive=True,
         )
         self.transect_view = None
+        self.current_transect = None  # Store the current selected transect
         self.setup_ui()
 
     def setup_ui(self):
@@ -194,17 +195,39 @@ class SpatialQueryApp(param.Parameterized):
     def update_view(self, x, y):
         try:
             geometry = self.spatial_engine.get_nearest_geometry(x, y)
+            self.current_transect = geometry.iloc[0]  # Store the selected transect
             new_view = self.visualization_func(geometry)
         except Exception as e:
             logger.exception(
                 f"Visualization failed due to {e}. Reverting to default geometry."
             )
-            # NOTE: leave here for debugging purposes
-            # logger.error(f"env: {os.environ}")
             new_view = self.visualization_func(self.default_geometry)
 
         # Update the transect_view HoloViews pane object directly without recreating the pane
         self.transect_view.object = new_view * self.tiles * self.point_draw
+
+    def get_selected_geometry(self):
+        """
+        Returns the currently selected transect's geometry and metadata.
+
+        Returns:
+            dict: A dictionary containing 'transect_id', 'lon', and 'lat'.
+        """
+        if self.current_transect is not None:
+            transect_id = self.current_transect.transect_id
+            lon, lat = self.current_transect.lon, self.current_transect.lat
+
+            return {
+                "transect_id": transect_id,
+                "lon": lon,
+                "lat": lat,
+            }
+        else:
+            return {
+                "transect_id": None,
+                "lon": None,
+                "lat": None,
+            }
 
     def view(self):
         # Return the transect_view pane for rendering in the app
@@ -298,15 +321,19 @@ classification_manager = ClassificationManager(
     prefix="labels",
     user_manager=user_manager,
     classification_schema_manager=classification_schema_manager,
-    spatial_query_app=spatial_query_app
+    spatial_query_app=spatial_query_app,
 )
 
 # Define the Panel template
 app = pn.template.FastListTemplate(
     title="Coastal Typology Annotation Tool",
-    sidebar=[user_manager.view(), classification_schema_manager.view()],
+    sidebar=[
+        user_manager.view(),
+        classification_schema_manager.view(),
+        classification_manager.view(),
+    ],
     main=[spatial_query_app.view()],
     accent_base_color="#007BFF",
     header_background="#007BFF",
 )
-app.servable()
+app.servable().show()
