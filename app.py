@@ -126,6 +126,8 @@ class SpatialQueryEngine:
         SELECT 
             transect_id, 
             bbox, 
+            lon,
+            lat,
             ST_AsWKB(ST_Transform(ST_GeomFromWKB(geometry), 'EPSG:4326', 'EPSG:4326')) AS geometry, 
             ST_Distance(
                 ST_Transform(ST_GeomFromWKB(geometry), 'EPSG:4326', 'EPSG:3857'),

@@ -59,7 +59,7 @@ class CRUDManager(ABC):
 
     def create_record(self, record: dict):
         """Creates a new record and saves it."""
-        timestamp = datetime.datetime.utcnow().isoformat()
+        timestamp = datetime.datetime.now(datetime.UTC).isoformat()
         record["timestamp"] = timestamp
         self.save_record(record)
 

@@ -48,14 +48,15 @@ class ClassificationManager(CRUDManager):
         # Collect spatial data (assuming get_selected_geometry returns a dict with transect_id, lon, and lat)
         spatial_data = self.spatial_query_app.get_selected_geometry()
         transect_id = spatial_data.get('transect_id')
-        lon = spatial_data.get('lon')
-        lat = spatial_data.get('lat')
+        # NOTE: we have to cast to regular floats - otherwise it's not serializable to JSON
+        lon = float(spatial_data.get('lon'))
+        lat = float(spatial_data.get('lat'))
 
         # Create the record
         record = {
             "user": user,
             "transect_id": transect_id,
-            "timestamp": datetime.datetime.utcnow().isoformat(),
+            "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
             "shore_fabric": shore_fabric,
             "coastal_type": coastal_type,
             "defenses": defenses,
