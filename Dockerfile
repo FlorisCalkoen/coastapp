@@ -43,6 +43,7 @@ COPY users.py /app/
 COPY crud.py /app/
 COPY schema.py /app/
 COPY classification.py /app/
+COPY feature.py /app/
 COPY run_server.sh /app/
 COPY setup_run_server.sh /app/
 

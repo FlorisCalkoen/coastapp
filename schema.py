@@ -1,15 +1,10 @@
 import logging
-import os
 
-import dotenv
 import panel as pn
 from crud import CRUDManager
 
 logger = logging.getLogger(__name__)
 
-dotenv.load_dotenv(override=True)
-sas_token = os.getenv("APPSETTING_GCTS_AZURE_STORAGE_SAS_TOKEN")
-storage_options = {"account_name": "coclico", "sas_token": sas_token}
 
 
 class ClassificationSchemaManager(CRUDManager):

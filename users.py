@@ -10,6 +10,7 @@ from crud import CRUDManager
 
 logger = logging.getLogger(__name__)
 
+
 class UserManager(CRUDManager):
     def __init__(self, storage_options, container_name, prefix):
         super().__init__(container_name=container_name, storage_options=storage_options)
@@ -20,7 +21,9 @@ class UserManager(CRUDManager):
         self.selected_user = None
 
         # Panel widgets
-        self.user_list = pn.widgets.Select(name="User", options=self.existing_users)
+        self.user_list = pn.widgets.Select(
+            name="User", options=[None, *self.existing_users]
+        )
         self.user_input = pn.widgets.TextInput(
             name="Add New User", placeholder="Enter new user name"
         )

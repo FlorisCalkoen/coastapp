@@ -46,6 +46,7 @@ dependencies:
   - xarray
   - s3fs
   - pystac-client
+  - pyperclip
 
   - pip:
       - duckdb # conda binaries are usually delayed

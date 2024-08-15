@@ -3,6 +3,7 @@ import geopandas as gpd
 from shapely.geometry import LineString, Polygon, box
 
 
+
 def extract_spatial_extents(base_path, storage_options=None):
     """
     Extracts the spatial extents of GeoParquet files located at the given base path.

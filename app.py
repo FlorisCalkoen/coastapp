@@ -113,7 +113,7 @@ class SpatialQueryEngine:
 
         minx, miny, maxx, maxy = (
             gpd.GeoDataFrame(
-                point_gdf.to_crs(3857).buffer(10000).to_frame("geometry"),
+                point_gdf.to_crs(3857).buffer(20000).to_frame("geometry"),
                 crs=3857,
             )
             .to_crs(4326)
@@ -326,6 +326,8 @@ classification_manager = ClassificationManager(
     spatial_query_app=spatial_query_app,
 )
 
+# feature_manager = FeatureManager(spatial_query_app=spatial_query_app)
+
 # Define the Panel template
 app = pn.template.FastListTemplate(
     title="Coastal Typology Annotation Tool",
@@ -333,6 +335,7 @@ app = pn.template.FastListTemplate(
         user_manager.view(),
         classification_schema_manager.view(),
         classification_manager.view(),
+        # feature_manager.view(),
     ],
     main=[spatial_query_app.view()],
     accent_base_color="#007BFF",
