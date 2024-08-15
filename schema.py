@@ -6,7 +6,6 @@ from crud import CRUDManager
 logger = logging.getLogger(__name__)
 
 
-
 class ClassificationSchemaManager(CRUDManager):
     def __init__(self, storage_options, container_name, prefix):
         super().__init__(container_name=container_name, storage_options=storage_options)
@@ -146,7 +145,7 @@ class ClassificationSchemaManager(CRUDManager):
             # Refresh the dropdowns
             self.attribute_dropdowns[selected_attribute].param.trigger("options")
 
-    def view(self):
+    def view_main_widget(self):
         """View for displaying the full UI."""
         return pn.Column(
             pn.pane.Markdown(
@@ -157,13 +156,18 @@ class ClassificationSchemaManager(CRUDManager):
             ),
             *self.attribute_dropdowns.values(),
             self.classification_display_pane,
+            name="Classification Management",
+        )
+
+    def view_add_new_class_widget(self):
+        return pn.Column(
             pn.pane.Markdown(
-                "### [Optional] Propose a new class: \n Please ensure the class is essential, as"
+                "## [Optional] Propose a new class: \n Please ensure the class is essential, as"
                 "we aim to keep the number of classes minimal. Your input is valued."
             ),
             self.attribute_selector,
             self.class_name_input,
             self.class_description_input,
             self.add_class_button,
-            name="Classification Management",
+            name="Add New Class",
         )

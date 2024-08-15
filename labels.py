@@ -105,6 +105,11 @@ class LabelledTransectManager(CRUDManager):
         df = self.get_latest_records()
 
         plot = df[["geometry"]].hvplot(
-            geo=True, color="green", responsive=True, size=10
+            geo=True,
+            color="red",
+            responsive=True,
+            size=50,
+            label="Labelled Transects",
+            line_color="green",
         )
         return plot

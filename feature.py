@@ -16,10 +16,10 @@ class FeatureManager:
         # Panel widgets
         self.google_maps_url = pn.pane.Markdown("")
         self.copy_coords_button = pn.widgets.Button(
-            name="Copy Coords to Clipboard (Google Earth format)", button_type="primary"
+            name="Copy Coords to Clipboard (Google Earth format)", button_type="default"
         )
         self.copy_transect_id_button = pn.widgets.Button(
-            name="Copy Transect ID to Clipboard", button_type="primary"
+            name="Copy Transect ID to Clipboard", button_type="default"
         )
 
         # Set up callbacks
@@ -75,7 +75,6 @@ class FeatureManager:
         View for displaying the FeatureManager interface.
         """
         return pn.Column(
-            pn.pane.Markdown("## Additional Features"),
             self.google_maps_url,
             self.copy_coords_button,
             self.copy_transect_id_button,

@@ -140,8 +140,8 @@ class SpatialQueryApp(param.Parameterized):
     current_transect = param.ClassSelector(
         class_=gpd.GeoDataFrame, doc="Current transect as a GeoDataFrame"
     )
-    labelled_transects_visible = param.Boolean(
-        default=False, doc="Toggle labelled transects visibility"
+    show_labelled_transects = param.Boolean(
+        default=False, doc="Show/Hide Labelled Transects"
     )
 
     def __init__(self, spatial_engine, labelled_transect_manager, default_geometry):
@@ -150,7 +150,7 @@ class SpatialQueryApp(param.Parameterized):
         self.labelled_transect_manager = labelled_transect_manager
         self.view_initialized = False
 
-        # Initialize the tiles and point draw tools
+        # Initialize map tiles and point drawing tools
         self.tiles = gvts.EsriImagery()
         self.point_draw = gv.Points([]).opts(
             size=10, color="red", tools=["hover"], responsive=True
@@ -175,16 +175,18 @@ class SpatialQueryApp(param.Parameterized):
         )
         self.point_draw_stream.add_subscriber(self.on_point_draw)
 
-        # Add the toggle button
+        # Add the toggle button to show/hide labelled transects
         self.toggle_button = pn.widgets.Toggle(
-            name="Show Labelled Transects", button_type="success"
+            name="Show Labelled Transects", value=False, button_type="default"
         )
-        self.toggle_button.param.watch(self.toggle_transects, "value")
+        self.toggle_button.param.watch(self.toggle_labelled_transects, "value")
 
     def initialize_view(self):
         """Initializes the HoloViews pane using the current transect."""
         return pn.pane.HoloViews(
-            self.plot_transect(self.current_transect) * self.tiles * self.point_draw
+            (
+                self.plot_transect(self.current_transect) * self.tiles * self.point_draw
+            ).opts(active_tools=["wheel_zoom"])
         )
 
     def plot_transect(self, transect):
@@ -215,7 +217,6 @@ class SpatialQueryApp(param.Parameterized):
 
     def set_transect(self, transect_data, query_triggered=False, update=True):
         """Sets the current transect and optionally updates the view."""
-        # If transect_data is a dictionary, prepare it as a GeoDataFrame
         if isinstance(transect_data, dict):
             self.current_transect = self.prepare_transect(transect_data)
         else:
@@ -225,21 +226,31 @@ class SpatialQueryApp(param.Parameterized):
         if update and self.view_initialized:
             self.update_view()
 
-    def toggle_transects(self, event):
-        """Toggle the visibility of labelled transects."""
-        if event.new:
-            # Load and plot labelled transects
-            self.labelled_transect_manager.load()
-            transect_plot = self.labelled_transect_manager.plot_labelled_transects()
-            self.transect_view.object = self.transect_view.object * transect_plot
+    def toggle_labelled_transects(self, event):
+        """Handle the toggle button to show or hide labelled transects."""
+        self.show_labelled_transects = event.new
+
+        if self.show_labelled_transects:
+            self.toggle_button.button_type = "success"  # Set to green
+            self.labelled_transect_manager.get_latest_records()
         else:
-            # Reset the view without labelled transects
-            self.update_view()
+            self.toggle_button.button_type = "default"
+        self.update_view()
 
     def update_view(self):
-        """Updates the visualization based on the current transect data."""
+        """Update the visualization based on the current transect."""
         new_view = self.plot_transect(self.current_transect)
-        self.transect_view.object = new_view * self.tiles * self.point_draw
+
+        # If show_labelled_transects is True, include labelled transects in the view
+        if self.show_labelled_transects:
+            labelled_transects_plot = (
+                self.labelled_transect_manager.plot_labelled_transects()
+            )
+            new_view = new_view * labelled_transects_plot
+
+        self.transect_view.object = (new_view * self.tiles * self.point_draw).opts(
+            legend_position="bottom_right", active_tools=["wheel_zoom"]
+        )
 
     def on_point_draw(self, data):
         """Handle the point draw event and query the nearest geometry based on drawn points."""
@@ -262,11 +273,13 @@ class SpatialQueryApp(param.Parameterized):
             return self.current_transect.iloc[0].to_dict()
         return {"transect_id": None, "lon": None, "lat": None}
 
-    def view(self):
+    def main_widget(self):
         """Returns the pane representing the current transect view and toggle button."""
-        return pn.Column(
-            self.toggle_button, self.transect_view
-        )  # Initialize the core application logic
+        return self.transect_view
+
+    def view_labelled_transects_button(self):
+        """Returns the toggle button to view labelled transects."""
+        return self.toggle_button
 
 
 pn.extension()
@@ -330,17 +343,26 @@ classification_manager = ClassificationManager(
 
 feature_manager = FeatureManager(spatial_query_app=spatial_query_app)
 
+# Combine additional features in one column
+additional_features_view = pn.Column(
+    pn.pane.Markdown("## Additional Features"),
+    spatial_query_app.view_labelled_transects_button(),
+    feature_manager.view(),
+    name="Additional Features",
+)
+
 
 # Define the Panel template
 app = pn.template.FastListTemplate(
     title="Coastal Typology Annotation Tool",
     sidebar=[
         user_manager.view(),
-        classification_schema_manager.view(),
+        classification_schema_manager.view_main_widget(),
         classification_manager.view(),
-        feature_manager.view(),
+        additional_features_view,
+        classification_schema_manager.view_add_new_class_widget(),
     ],
-    main=[spatial_query_app.view()],
+    main=[spatial_query_app.main_widget()],
     accent_base_color="#007BFF",
     header_background="#007BFF",
 )

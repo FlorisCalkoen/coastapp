@@ -23,24 +23,28 @@ class ClassificationManager(CRUDManager):
         self.user_manager = user_manager
         self.classification_schema_manager = classification_schema_manager
         self.spatial_query_app = spatial_query_app
+        self.is_challenging = False
 
         # Panel widgets
         self.save_button = pn.widgets.Button(
-            name="Save Classification", button_type="primary", disabled=True
+            name="Save Classification", button_type="success", disabled=True
         )
         self.is_challenging_button = pn.widgets.Toggle(
-            name="Is Challenging", button_type="default", value=False
+            name="Flag as Challenging", button_type="default", value=False
         )
+
         self.comment_input = pn.widgets.TextAreaInput(
-            name="Optional Comment", placeholder="Enter your comments here..."
+            name="Comment", placeholder="[Optional] Enter your comments here..."
         )
         self.link_input = pn.widgets.TextInput(
-            name="Optional Link", placeholder="Enter a URL link to a useful resource..."
+            name="Link",
+            placeholder="[Optional] Add a URL link to a useful resource, like a street-view image.",
         )
         self.save_feedback_message = pn.pane.Markdown()
 
         # Setup callbacks
         self.save_button.on_click(self.save_classification)
+        self.is_challenging_button.param.watch(self.toggle_is_challenging, "value")
         self.setup_schema_callbacks()
 
     def setup_schema_callbacks(self):
@@ -60,7 +64,7 @@ class ClassificationManager(CRUDManager):
         """Generate a filename for the classification record."""
         user = record["user"]
         transect_id = record["transect_id"]
-        timestamp = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%S")
+        timestamp = datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%S")
         return f"{user}_{transect_id}_{timestamp}.json"
 
     def collect_classification_data(self) -> dict:
@@ -101,7 +105,7 @@ class ClassificationManager(CRUDManager):
             "shore_fabric": shore_fabric,
             "coastal_type": coastal_type,
             "defenses": defenses,
-            "is_challenging": self.is_challenging_button.value,
+            "is_challenging": self.is_challenging,  # Use the `is_challenging` flag
             "comment": self.comment_input.value,
             "link": self.link_input.value,
         }
@@ -130,6 +134,11 @@ class ClassificationManager(CRUDManager):
         """Reset all dropdowns to their default (empty) values."""
         for dropdown in self.classification_schema_manager.attribute_dropdowns.values():
             dropdown.value = None
+
+        # Reset the 'is_challenging' button
+        self.is_challenging_button.value = False  # Reset to False
+        self.is_challenging_button.button_type = "default"  # Reset color to default
+        self.is_challenging = False  # Reset the flag
 
     def save_classification(self, event=None):
         """Save the classification data to cloud storage."""
@@ -161,13 +170,15 @@ class ClassificationManager(CRUDManager):
             self.save_button.disabled = False
 
     def toggle_is_challenging(self, event):
-        """Toggle the color of the 'Is Challenging' button based on its state."""
-        self.is_challenging_button.button_type = "danger" if event.new else "default"
+        """Toggle the `is_challenging` flag and change button color based on its state."""
+        self.is_challenging = event.new  # Update the `is_challenging` flag
+        self.is_challenging_button.button_type = (
+            "danger" if self.is_challenging else "default"
+        )
 
     def view(self):
         """View for displaying the classification save interface."""
         return pn.Column(
-            pn.pane.Markdown("## Save Classification"),
             self.is_challenging_button,
             self.comment_input,
             self.link_input,
