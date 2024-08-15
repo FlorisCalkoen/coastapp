@@ -1,6 +1,7 @@
 import datetime
 import logging
 
+import pandas as pd
 import panel as pn
 from crud import CRUDManager
 
@@ -40,15 +41,15 @@ class ClassificationManager(CRUDManager):
 
         # Setup callbacks
         self.save_button.on_click(self.save_classification)
-        self.classification_schema_manager.attribute_dropdowns[
-            "shore_fabric"
-        ].param.watch(self.enable_save_button, "value")
-        self.classification_schema_manager.attribute_dropdowns[
-            "coastal_type"
-        ].param.watch(self.enable_save_button, "value")
-        self.classification_schema_manager.attribute_dropdowns["defenses"].param.watch(
-            self.enable_save_button, "value"
-        )
+        self.setup_schema_callbacks()
+
+    def setup_schema_callbacks(self):
+        """Setup callbacks for classification schema dropdowns to enable save button."""
+        for attr in ["shore_fabric", "coastal_type", "defenses"]:
+            if attr in self.classification_schema_manager.attribute_dropdowns:
+                self.classification_schema_manager.attribute_dropdowns[
+                    attr
+                ].param.watch(self.enable_save_button, "value")
 
     @property
     def get_prefix(self) -> str:
@@ -64,7 +65,6 @@ class ClassificationManager(CRUDManager):
 
     def collect_classification_data(self) -> dict:
         """Collect data from the user manager, classification schema, and spatial query app."""
-        # Get the selected user
         user = self.user_manager.selected_user
 
         # Collect selected classes
@@ -78,25 +78,32 @@ class ClassificationManager(CRUDManager):
             "defenses"
         ].value
 
-        # Collect spatial data (assuming get_selected_geometry returns a dict with transect_id, lon, and lat)
+        # Collect spatial data from the GeoDataFrame in spatial_query_app
         spatial_data = self.spatial_query_app.get_selected_geometry()
         transect_id = spatial_data.get("transect_id")
-        lon = float(spatial_data.get("lon"))
-        lat = float(spatial_data.get("lat"))
+        lon = spatial_data.get("lon")
+        lat = spatial_data.get("lat")
+        geometry = spatial_data.get("geometry")
+
+        # Handle missing spatial data
+        if pd.isna(transect_id) or pd.isna(lon) or pd.isna(lat) or pd.isna(geometry):
+            self.save_feedback_message.object = "**Error:** No valid transect selected."
+            return None
 
         # Create the record
         record = {
             "user": user,
             "transect_id": transect_id,
+            "lon": float(lon),  # Convert to float for JSON serialization
+            "lat": float(lat),  # Convert to float for JSON serialization
+            "geometry": geometry.wkt,
             "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
             "shore_fabric": shore_fabric,
             "coastal_type": coastal_type,
             "defenses": defenses,
             "is_challenging": self.is_challenging_button.value,
-            "lon": lon,
-            "lat": lat,
-            "comment": self.comment_input.value,  # Optional comment
-            "link": self.link_input.value,  # Optional link
+            "comment": self.comment_input.value,
+            "link": self.link_input.value,
         }
         return record
 
@@ -128,10 +135,15 @@ class ClassificationManager(CRUDManager):
         """Save the classification data to cloud storage."""
         record = self.collect_classification_data()
 
+        # If record is None, return without proceeding
+        if not record:
+            return
+
         # Validate the record before saving
         if not self.validate_record(record):
             return
 
+        # Save the record
         self.create_record(record)
         self.save_feedback_message.object = f"**Success:** Classification saved successfully. File: {self.generate_filename(record)}"
         self.save_button.disabled = True  # Disable save after successful save
@@ -141,9 +153,10 @@ class ClassificationManager(CRUDManager):
 
     def enable_save_button(self, event=None):
         """Enable the save button if all required fields are filled."""
+        required_dropdowns = ["shore_fabric", "coastal_type", "defenses"]
         if all(
-            dropdown.value
-            for dropdown in self.classification_schema_manager.attribute_dropdowns.values()
+            self.classification_schema_manager.attribute_dropdowns[dropdown].value
+            for dropdown in required_dropdowns
         ):
             self.save_button.disabled = False
 
@@ -156,8 +169,8 @@ class ClassificationManager(CRUDManager):
         return pn.Column(
             pn.pane.Markdown("## Save Classification"),
             self.is_challenging_button,
-            self.comment_input,  # Add the comment input to the interface
-            self.link_input,  # Add the link input to the interface
+            self.comment_input,
+            self.link_input,
             self.save_button,
             self.save_feedback_message,
             name="Classification Management",

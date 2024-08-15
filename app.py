@@ -10,10 +10,10 @@ import geoviews.tile_sources as gvts
 import holoviews as hv
 import panel as pn
 import param
-import pyproj
 import pystac_client
 import shapely
 from classification import ClassificationManager
+from feature import FeatureManager
 from holoviews import streams
 from schema import ClassificationSchemaManager
 from shapely import wkt
@@ -39,11 +39,6 @@ class SpatialQueryEngine:
     ):
         """
         Initializes the SpatialQueryEngine with STAC collection details.
-
-        Args:
-            stac_url: URL to the STAC catalog.
-            collection_id: ID of the collection within the STAC catalog.
-            storage_backend: Specifies the storage backend to use. Defaults to 'azure'.
         """
         if not storage_options:
             storage_options = {}
@@ -65,7 +60,6 @@ class SpatialQueryEngine:
         if self.storage_backend == "azure":
             self.con.execute("INSTALL azure;")
             self.con.execute("LOAD azure;")
-
         elif self.storage_backend == "aws":
             self.con.execute("INSTALL httpfs;")
             self.con.execute("LOAD httpfs;")
@@ -103,22 +97,13 @@ class SpatialQueryEngine:
         point_gdf = gpd.GeoDataFrame(geometry=[point], crs="EPSG:4326")
         href = gpd.sjoin(self.quadtiles, point_gdf, predicate="contains").href.iloc[0]
         point_wkt = point_gdf.to_crs(self.proj_epsg).geometry.to_wkt().iloc[0]
-        # NOTE: for DuckDB queries a small hack that replaces az:// with azure://
-        if self.storage_backend == "azure":
-            # NOTE: leave this here because that's required for duckdb, when we manage to
-            # set the azure credentials credentials in the DuckDB connection.
-            # href = href.replace("az://", "azure://")
-            href = href.replace("az://", "https://coclico.blob.core.windows.net/")
-            href = href + "?" + sas_token
 
-        minx, miny, maxx, maxy = (
-            gpd.GeoDataFrame(
-                point_gdf.to_crs(3857).buffer(20000).to_frame("geometry"),
-                crs=3857,
+        # Note: Handling azure and aws URLs
+        if self.storage_backend == "azure":
+            href = (
+                href.replace("az://", "https://coclico.blob.core.windows.net/")
+                + f"?{sas_token}"
             )
-            .to_crs(4326)
-            .total_bounds
-        )
 
         minx, miny, maxx, maxy = point_gdf.total_bounds
 
@@ -151,128 +136,130 @@ class SpatialQueryEngine:
 
 
 class SpatialQueryApp(param.Parameterized):
-    transect_name = param.String(
-        default=None, doc="Identifier for the selected transect"
+    current_transect = param.ClassSelector(
+        class_=gpd.GeoDataFrame, doc="Current transect as a GeoDataFrame"
     )
 
-    def __init__(self, spatial_engine, visualization_func, default_geometry):
+    def __init__(self, spatial_engine, default_geometry):
         super().__init__()
         self.spatial_engine = spatial_engine
-        self.visualization_func = visualization_func
-        self.default_geometry = default_geometry
+        self.view_initialized = False  # Track if the view is initialized
+
+        # Initialize the tiles and point draw tools
         self.tiles = gvts.EsriImagery()
         self.point_draw = gv.Points([]).opts(
-            size=10,
-            color="red",
-            tools=["hover"],
-            responsive=True,
+            size=10, color="red", tools=["hover"], responsive=True
         )
-        self.transect_view = None
-        self.current_transect = None  # Store the current selected transect
+
+        # Set the default transect without triggering a view update
+        self.set_transect(default_geometry, query_triggered=False, update=False)
+
+        # Initialize the UI components (view initialized first)
+        self.transect_view = self.initialize_view()
+
+        # Mark the view as initialized
+        self.view_initialized = True
+
+        # Setup the UI after the transect and view are initialized
         self.setup_ui()
 
     def setup_ui(self):
-        # Setup the dynamic visualization initially
-        self.transect_view = self.initialize_view()
-
-        # Setup point draw stream and subscribe to point draw events
+        """Set up the dynamic visualization and point drawing tools."""
         self.point_draw_stream = streams.PointDraw(
             source=self.point_draw, num_objects=1
         )
         self.point_draw_stream.add_subscriber(self.on_point_draw)
 
     def initialize_view(self):
-        # Return a HoloViews pane for dynamic updates
+        """Initializes the HoloViews pane using the current transect."""
         return pn.pane.HoloViews(
-            self.visualization_func(self.default_geometry)
+            self.plot_transect(self.current_transect)
             * self.tiles
             * self.point_draw
         )
 
-    def on_point_draw(self, data):
-        if data:
-            x, y = data["Longitude"][0], data["Latitude"][0]
-            self.update_view(x, y)
+    def plot_transect(self, transect):
+        """Plot the given transect with polygons and paths."""
+        polygon = gpd.GeoDataFrame(
+            geometry=[
+                create_offset_rectangle(
+                    transect.to_crs(transect.estimate_utm_crs()).geometry.item(),
+                    distance=200,
+                )
+            ],
+            crs=transect.estimate_utm_crs(),
+        )
+        polygon_plot = gv.Polygons(polygon[["geometry"]].to_crs(4326)).opts(
+            fill_alpha=0.1, fill_color="green", line_width=2
+        )
+        transect_plot = gv.Path(transect[["geometry"]].to_crs(4326)).opts(
+            color="red", line_width=1, tools=["hover"], active_tools=["wheel_zoom"]
+        )
+        return polygon_plot * transect_plot
 
-    def update_view(self, x, y):
+    def prepare_transect(self, transect_data):
+        """Converts transect data dictionary to GeoDataFrame."""
+        geom = wkt.loads(transect_data.get("geometry"))
+        transect_gdf = gpd.GeoDataFrame([transect_data], geometry=[geom], crs="EPSG:4326")
+        return transect_gdf
+
+    def set_transect(self, transect_data, query_triggered=False, update=True):
+        """Sets the current transect and optionally updates the view."""
+        # If transect_data is a dictionary, prepare it as a GeoDataFrame
+        if isinstance(transect_data, dict):
+            self.current_transect = self.prepare_transect(transect_data)
+        else:
+            self.current_transect = transect_data
+
+        # Update the view only if explicitly allowed and after initialization
+        if update and self.view_initialized:
+            self.update_view()
+
+    def update_view(self):
+        """Updates the visualization based on the current transect data."""
         try:
-            geometry = self.spatial_engine.get_nearest_geometry(x, y)
-            self.current_transect = geometry.iloc[0]  # Store the selected transect
-            new_view = self.visualization_func(geometry)
+            new_view = self.plot_transect(self.current_transect)
         except Exception as e:
             logger.exception(
-                f"Visualization failed due to {e}. Reverting to default geometry."
+                f"Visualization failed due to {e}. Reverting to default transect."
             )
-            new_view = self.visualization_func(self.default_geometry)
+            new_view = self.plot_transect(self.default_transect)
 
-        # Update the transect_view HoloViews pane object directly without recreating the pane
         self.transect_view.object = new_view * self.tiles * self.point_draw
 
+    def on_point_draw(self, data):
+        """Handle the point draw event and query the nearest geometry based on drawn points."""
+        if data:
+            x, y = data["Longitude"][0], data["Latitude"][0]
+            self.query_and_set_transect(x, y)
+
+    def query_and_set_transect(self, x, y):
+        """Queries the nearest transect and updates the current transect."""
+        try:
+            geometry = self.spatial_engine.get_nearest_geometry(x, y)
+            self.set_transect(geometry, query_triggered=True)
+        except Exception as e:
+            logger.exception(
+                "Failed to query geometry. Reverting to default transect."
+            )
+            self.set_transect(self.default_transect, query_triggered=False)
+
     def get_selected_geometry(self):
-        """
-        Returns the currently selected transect's geometry and metadata.
-
-        Returns:
-            dict: A dictionary containing 'transect_id', 'lon', and 'lat'.
-        """
-        if self.current_transect is not None:
-            transect_id = self.current_transect.transect_id
-            lon, lat = self.current_transect.lon, self.current_transect.lat
-
-            return {
-                "transect_id": transect_id,
-                "lon": lon,
-                "lat": lat,
-            }
-        else:
-            return {
-                "transect_id": None,
-                "lon": None,
-                "lat": None,
-            }
+        """Returns the currently selected transect's geometry and metadata."""
+        if not self.current_transect.empty:
+            return self.current_transect.iloc[0].to_dict()
+        return {"transect_id": None, "lon": None, "lat": None}
 
     def view(self):
-        # Return the transect_view pane for rendering in the app
+        """Returns the pane representing the current transect view."""
         return self.transect_view
 
 
-def default_visualization(transect):
-    polygon = gpd.GeoDataFrame(
-        geometry=[
-            create_offset_rectangle(
-                transect.to_crs(transect.estimate_utm_crs()).geometry.item(),
-                distance=200,
-            )
-        ],
-        crs=transect.estimate_utm_crs(),
-    )
-
-    polygon_plot = gv.Polygons(polygon[["geometry"]].to_crs(4326)).opts(
-        fill_alpha=0.1, fill_color="green", line_width=2
-    )
-
-    transect_plot = gv.Path(transect[["geometry"]].to_crs(4326)).opts(
-        color="red", line_width=1, tools=["hover"], active_tools=["wheel_zoom"]
-    )
-
-    return polygon_plot * transect_plot
-
-
-def prepare_default_geometry(data, crs):
-    """
-    Prepares a default geometry from a data dictionary and sets its CRS This should
-    exactly match what is being returned from the spatial engine.
-    """
-    geom = wkt.loads(data["geometry"])
-    gdf = gpd.GeoDataFrame([data], geometry=[geom], crs=pyproj.CRS.from_user_input(crs))
-    return gdf
-
-
+# Initialize the core application logic
 pn.extension()
 hv.extension("bokeh")
 
 stac_url = "https://coclico.blob.core.windows.net/stac/test/catalog.json"
-
 
 default_geometry = {
     "transect_id": "cl33475tr00223848",
@@ -293,9 +280,6 @@ default_geometry = {
     "common_region_name": "NL-ZH",
 }
 
-
-default_geometry = prepare_default_geometry(default_geometry, crs=4326).to_crs(4326)
-
 spatial_engine = SpatialQueryEngine(
     stac_url=stac_url,
     collection_id="gcts",
@@ -304,19 +288,16 @@ spatial_engine = SpatialQueryEngine(
 )
 
 spatial_query_app = SpatialQueryApp(
-    spatial_engine, default_visualization, default_geometry
+    spatial_engine, default_geometry
 )
 
-# Initialize the UserManager with the storage options and container details
+# Initialize managers with the new app implementation
 user_manager = UserManager(
     storage_options=storage_options, container_name="typology", prefix="users"
 )
-
 classification_schema_manager = ClassificationSchemaManager(
     storage_options=storage_options, container_name="typology", prefix=""
 )
-
-# Initialize the ClassificationManager
 classification_manager = ClassificationManager(
     storage_options=storage_options,
     container_name="typology",
@@ -326,7 +307,8 @@ classification_manager = ClassificationManager(
     spatial_query_app=spatial_query_app,
 )
 
-# feature_manager = FeatureManager(spatial_query_app=spatial_query_app)
+feature_manager = FeatureManager(spatial_query_app=spatial_query_app)
+
 
 # Define the Panel template
 app = pn.template.FastListTemplate(
@@ -335,10 +317,11 @@ app = pn.template.FastListTemplate(
         user_manager.view(),
         classification_schema_manager.view(),
         classification_manager.view(),
-        # feature_manager.view(),
+        feature_manager.view(),
     ],
     main=[spatial_query_app.view()],
     accent_base_color="#007BFF",
     header_background="#007BFF",
 )
+
 app.servable().show()

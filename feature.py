@@ -16,20 +16,23 @@ class FeatureManager:
         # Panel widgets
         self.google_maps_url = pn.pane.Markdown("")
         self.copy_coords_button = pn.widgets.Button(
-            name="Copy Coords to Clipboard (Google Maps Format)", button_type="primary"
+            name="Copy Coords to Clipboard (Google Earth format)", button_type="primary"
         )
         self.copy_transect_id_button = pn.widgets.Button(
             name="Copy Transect ID to Clipboard", button_type="primary"
         )
 
-        # Callbacks
+        # Set up callbacks
         self.copy_coords_button.on_click(self.copy_coords_to_clipboard)
         self.copy_transect_id_button.on_click(self.copy_transect_id_to_clipboard)
 
         # Update the Google Maps URL whenever the transect is updated
         self.spatial_query_app.param.watch(self.update_google_maps_url, "current_transect")
 
-    def update_google_maps_url(self, event):
+        # Initial update of the Google Maps URL
+        self.update_google_maps_url()
+
+    def update_google_maps_url(self, event=None):
         """
         Update the Google Maps URL link based on the current transect's coordinates.
         """
@@ -38,7 +41,7 @@ class FeatureManager:
             lon, lat = selected_geometry['lon'], selected_geometry['lat']
             zoom = 18  # You can adjust this zoom level if necessary
             url = f"https://www.google.com/maps/@{lat},{lon},{zoom}z"
-            link = f'<a href="{url}" target="_blank">Open in Google Maps</a>'
+            link = f'<a href="{url}" target="_blank">Open in Google Maps (street view) </a>'
             self.google_maps_url.object = link
         else:
             self.google_maps_url.object = "No location data available."
