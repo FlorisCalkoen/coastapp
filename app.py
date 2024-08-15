@@ -15,6 +15,7 @@ import shapely
 from classification import ClassificationManager
 from feature import FeatureManager
 from holoviews import streams
+from labels import LabelledTransectManager
 from schema import ClassificationSchemaManager
 from shapely import wkt
 from shapely.geometry import Point
@@ -139,11 +140,15 @@ class SpatialQueryApp(param.Parameterized):
     current_transect = param.ClassSelector(
         class_=gpd.GeoDataFrame, doc="Current transect as a GeoDataFrame"
     )
+    labelled_transects_visible = param.Boolean(
+        default=False, doc="Toggle labelled transects visibility"
+    )
 
-    def __init__(self, spatial_engine, default_geometry):
+    def __init__(self, spatial_engine, labelled_transect_manager, default_geometry):
         super().__init__()
         self.spatial_engine = spatial_engine
-        self.view_initialized = False  # Track if the view is initialized
+        self.labelled_transect_manager = labelled_transect_manager
+        self.view_initialized = False
 
         # Initialize the tiles and point draw tools
         self.tiles = gvts.EsriImagery()
@@ -170,12 +175,16 @@ class SpatialQueryApp(param.Parameterized):
         )
         self.point_draw_stream.add_subscriber(self.on_point_draw)
 
+        # Add the toggle button
+        self.toggle_button = pn.widgets.Toggle(
+            name="Show Labelled Transects", button_type="success"
+        )
+        self.toggle_button.param.watch(self.toggle_transects, "value")
+
     def initialize_view(self):
         """Initializes the HoloViews pane using the current transect."""
         return pn.pane.HoloViews(
-            self.plot_transect(self.current_transect)
-            * self.tiles
-            * self.point_draw
+            self.plot_transect(self.current_transect) * self.tiles * self.point_draw
         )
 
     def plot_transect(self, transect):
@@ -183,8 +192,7 @@ class SpatialQueryApp(param.Parameterized):
         polygon = gpd.GeoDataFrame(
             geometry=[
                 create_offset_rectangle(
-                    transect.to_crs(transect.estimate_utm_crs()).geometry.item(),
-                    distance=200,
+                    transect.to_crs(transect.estimate_utm_crs()).geometry.item(), 200
                 )
             ],
             crs=transect.estimate_utm_crs(),
@@ -193,14 +201,16 @@ class SpatialQueryApp(param.Parameterized):
             fill_alpha=0.1, fill_color="green", line_width=2
         )
         transect_plot = gv.Path(transect[["geometry"]].to_crs(4326)).opts(
-            color="red", line_width=1, tools=["hover"], active_tools=["wheel_zoom"]
+            color="red", line_width=1, tools=["hover"]
         )
         return polygon_plot * transect_plot
 
     def prepare_transect(self, transect_data):
         """Converts transect data dictionary to GeoDataFrame."""
         geom = wkt.loads(transect_data.get("geometry"))
-        transect_gdf = gpd.GeoDataFrame([transect_data], geometry=[geom], crs="EPSG:4326")
+        transect_gdf = gpd.GeoDataFrame(
+            [transect_data], geometry=[geom], crs="EPSG:4326"
+        )
         return transect_gdf
 
     def set_transect(self, transect_data, query_triggered=False, update=True):
@@ -215,16 +225,20 @@ class SpatialQueryApp(param.Parameterized):
         if update and self.view_initialized:
             self.update_view()
 
+    def toggle_transects(self, event):
+        """Toggle the visibility of labelled transects."""
+        if event.new:
+            # Load and plot labelled transects
+            self.labelled_transect_manager.load()
+            transect_plot = self.labelled_transect_manager.plot_labelled_transects()
+            self.transect_view.object = self.transect_view.object * transect_plot
+        else:
+            # Reset the view without labelled transects
+            self.update_view()
+
     def update_view(self):
         """Updates the visualization based on the current transect data."""
-        try:
-            new_view = self.plot_transect(self.current_transect)
-        except Exception as e:
-            logger.exception(
-                f"Visualization failed due to {e}. Reverting to default transect."
-            )
-            new_view = self.plot_transect(self.default_transect)
-
+        new_view = self.plot_transect(self.current_transect)
         self.transect_view.object = new_view * self.tiles * self.point_draw
 
     def on_point_draw(self, data):
@@ -239,9 +253,7 @@ class SpatialQueryApp(param.Parameterized):
             geometry = self.spatial_engine.get_nearest_geometry(x, y)
             self.set_transect(geometry, query_triggered=True)
         except Exception as e:
-            logger.exception(
-                "Failed to query geometry. Reverting to default transect."
-            )
+            logger.exception("Failed to query geometry. Reverting to default transect.")
             self.set_transect(self.default_transect, query_triggered=False)
 
     def get_selected_geometry(self):
@@ -251,11 +263,12 @@ class SpatialQueryApp(param.Parameterized):
         return {"transect_id": None, "lon": None, "lat": None}
 
     def view(self):
-        """Returns the pane representing the current transect view."""
-        return self.transect_view
+        """Returns the pane representing the current transect view and toggle button."""
+        return pn.Column(
+            self.toggle_button, self.transect_view
+        )  # Initialize the core application logic
 
 
-# Initialize the core application logic
 pn.extension()
 hv.extension("bokeh")
 
@@ -287,8 +300,16 @@ spatial_engine = SpatialQueryEngine(
     storage_options=storage_options,
 )
 
+# Initialize the LabelledTransectManager
+labelled_transect_manager = LabelledTransectManager(
+    storage_options=storage_options, container_name="typology", prefix="labels"
+)
+
+# Initialize the core application logic
 spatial_query_app = SpatialQueryApp(
-    spatial_engine, default_geometry
+    spatial_engine=spatial_engine,
+    labelled_transect_manager=labelled_transect_manager,
+    default_geometry=default_geometry,
 )
 
 # Initialize managers with the new app implementation
