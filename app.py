@@ -232,7 +232,7 @@ class SpatialQueryApp(param.Parameterized):
 
         if self.show_labelled_transects:
             self.toggle_button.button_type = "success"  # Set to green
-            self.labelled_transect_manager.get_latest_records()
+            self.labelled_transect_manager.load()
         else:
             self.toggle_button.button_type = "default"
         self.update_view()
@@ -313,9 +313,17 @@ spatial_engine = SpatialQueryEngine(
     storage_options=storage_options,
 )
 
+# Initialize managers with the new app implementation
+user_manager = UserManager(
+    storage_options=storage_options, container_name="typology", prefix="users"
+)
+
 # Initialize the LabelledTransectManager
 labelled_transect_manager = LabelledTransectManager(
-    storage_options=storage_options, container_name="typology", prefix="labels"
+    storage_options=storage_options,
+    container_name="typology",
+    prefix="labels",
+    user_manager=user_manager,
 )
 
 # Initialize the core application logic
@@ -325,10 +333,6 @@ spatial_query_app = SpatialQueryApp(
     default_geometry=default_geometry,
 )
 
-# Initialize managers with the new app implementation
-user_manager = UserManager(
-    storage_options=storage_options, container_name="typology", prefix="users"
-)
 classification_schema_manager = ClassificationSchemaManager(
     storage_options=storage_options, container_name="typology", prefix=""
 )
@@ -342,10 +346,19 @@ classification_manager = ClassificationManager(
 )
 
 feature_manager = FeatureManager(spatial_query_app=spatial_query_app)
+intro_pane = pn.pane.Markdown("""
+    The Coastal Typology Annotation Tool is designed to collect a crowd-sourced machine learning training dataset that can be used to classify the coast and improve our understanding of coastal erosion on extensive spatial scales. Use the point-draw tool (three dots with an arrow) on the drop-down menu to the right of the map to fetch a transect. The classification focuses on identifying three key elements:
 
+    - **Shore Fabric**: The type of material composing the shore (e.g., sandy, rocky).
+    - **Coastal Type**: The geomorphological and human-influenced landscape behind the shore (e.g., dunes, cliffs, urbanized areas).
+    - **Defenses**: Whether or not a coastal defense system (e.g., seawalls, dykes) is present.
+
+    Contributors may also suggest new classes if absolutely necessary, though the goal is to maintain a minimal and effective classification system. 
+""")
 # Combine additional features in one column
 additional_features_view = pn.Column(
     pn.pane.Markdown("## Additional Features"),
+    classification_manager.iterate_labelled_transects_view(),
     spatial_query_app.view_labelled_transects_button(),
     feature_manager.view(),
     name="Additional Features",
@@ -362,7 +375,10 @@ app = pn.template.FastListTemplate(
         additional_features_view,
         classification_schema_manager.view_add_new_class_widget(),
     ],
-    main=[spatial_query_app.main_widget()],
+    main=[
+        intro_pane,
+        spatial_query_app.main_widget(),
+    ],
     accent_base_color="#007BFF",
     header_background="#007BFF",
 )

@@ -42,9 +42,20 @@ class ClassificationManager(CRUDManager):
         )
         self.save_feedback_message = pn.pane.Markdown()
 
+        # Next and Previous buttons
+        self.previous_button = pn.widgets.Button(
+            name="Previous Transect", button_type="default"
+        )
+        self.next_button = pn.widgets.Button(
+            name="Next Transect", button_type="default"
+        )
+
         # Setup callbacks
         self.save_button.on_click(self.save_classification)
         self.is_challenging_button.param.watch(self.toggle_is_challenging, "value")
+        self.previous_button.on_click(self.load_previous_transect)
+        self.next_button.on_click(self.load_next_transect)
+
         self.setup_schema_callbacks()
 
     def setup_schema_callbacks(self):
@@ -54,6 +65,40 @@ class ClassificationManager(CRUDManager):
                 self.classification_schema_manager.attribute_dropdowns[
                     attr
                 ].param.watch(self.enable_save_button, "value")
+
+    def load_transect_data_into_widgets(self, record):
+        """Load transect record data into the classification widgets."""
+        # Update the classification widgets based on the fetched record
+        self.spatial_query_app.current_transect_id = record["transect_id"]
+        self.classification_schema_manager.attribute_dropdowns[
+            "shore_fabric"
+        ].value = record.get("shore_fabric")
+        self.classification_schema_manager.attribute_dropdowns[
+            "coastal_type"
+        ].value = record.get("coastal_type")
+        self.classification_schema_manager.attribute_dropdowns[
+            "defenses"
+        ].value = record.get("defenses")
+        self.comment_input.value = record.get("comment", "")
+        self.link_input.value = record.get("link", "")
+        self.is_challenging_button.value = record.get("is_challenging", False)
+        self.spatial_query_app.set_transect(record)
+
+    def load_previous_transect(self, event=None):
+        """Callback to load the previous transect."""
+        record = self.spatial_query_app.labelled_transect_manager.get_previous_record()
+        if record:
+            self.load_transect_data_into_widgets(record)
+
+    def load_next_transect(self, event=None):
+        """Callback to load the next transect."""
+        record = self.spatial_query_app.labelled_transect_manager.get_next_record()
+        if record:
+            self.load_transect_data_into_widgets(record)
+
+    def iterate_labelled_transects_view(self):
+        """Return a Row containing the Previous and Next transect buttons."""
+        return pn.Row(self.previous_button, self.next_button)
 
     @property
     def get_prefix(self) -> str:
@@ -69,7 +114,7 @@ class ClassificationManager(CRUDManager):
 
     def collect_classification_data(self) -> dict:
         """Collect data from the user manager, classification schema, and spatial query app."""
-        user = self.user_manager.selected_user
+        user = self.user_manager.selected_user.value
 
         # Collect selected classes
         shore_fabric = self.classification_schema_manager.attribute_dropdowns[
@@ -105,7 +150,7 @@ class ClassificationManager(CRUDManager):
             "shore_fabric": shore_fabric,
             "coastal_type": coastal_type,
             "defenses": defenses,
-            "is_challenging": self.is_challenging,  # Use the `is_challenging` flag
+            "is_challenging": self.is_challenging,
             "comment": self.comment_input.value,
             "link": self.link_input.value,
         }
@@ -136,28 +181,30 @@ class ClassificationManager(CRUDManager):
             dropdown.value = None
 
         # Reset the 'is_challenging' button
-        self.is_challenging_button.value = False  # Reset to False
-        self.is_challenging_button.button_type = "default"  # Reset color to default
-        self.is_challenging = False  # Reset the flag
+        self.is_challenging_button.value = False
+        self.is_challenging_button.button_type = "default"
+        self.is_challenging = False
 
     def save_classification(self, event=None):
         """Save the classification data to cloud storage."""
         record = self.collect_classification_data()
 
-        # If record is None, return without proceeding
         if not record:
             return
 
-        # Validate the record before saving
         if not self.validate_record(record):
             return
 
-        # Save the record
+        # If labelled transects are in memory, update the in-memory dataframe
+        if self.spatial_query_app.labelled_transect_manager.df is not None:
+            self.spatial_query_app.labelled_transect_manager.add_record(record)
+
+        # Save the record to cloud storage
         self.create_record(record)
         self.save_feedback_message.object = f"**Success:** Classification saved successfully. File: {self.generate_filename(record)}"
         self.save_button.disabled = True  # Disable save after successful save
 
-        # Reset the dropdowns after successful save
+        # Reset the dropdowns after saving
         self.reset_dropdowns()
 
     def enable_save_button(self, event=None):
@@ -170,8 +217,8 @@ class ClassificationManager(CRUDManager):
             self.save_button.disabled = False
 
     def toggle_is_challenging(self, event):
-        """Toggle the `is_challenging` flag and change button color based on its state."""
-        self.is_challenging = event.new  # Update the `is_challenging` flag
+        """Toggle the 'is_challenging' flag and change button color."""
+        self.is_challenging = event.new
         self.is_challenging_button.button_type = (
             "danger" if self.is_challenging else "default"
         )

@@ -6,9 +6,14 @@ import uuid
 
 import fsspec
 import panel as pn
+import param
 from crud import CRUDManager
 
 logger = logging.getLogger(__name__)
+
+
+class UserName(param.Parameterized):
+    value = param.String(default="", doc="Name of the current user")
 
 
 class UserManager(CRUDManager):
@@ -16,16 +21,18 @@ class UserManager(CRUDManager):
         super().__init__(container_name=container_name, storage_options=storage_options)
         self.prefix = prefix
 
+        # Reactive user name parameter
+        self.selected_user = UserName()
+
         # Load existing users
         self.existing_users = self.load_existing_users()
-        self.selected_user = None
 
         # Panel widgets
         self.user_list = pn.widgets.Select(
             name="User", options=[None, *self.existing_users]
         )
         self.user_input = pn.widgets.TextInput(
-            name="Add New User", placeholder="Enter new user name"
+            name="Add New User", placeholder="Enter new user name (first and last)"
         )
         self.add_user_button = pn.widgets.Button(name="Add User", button_type="primary")
         self.feedback_message = pn.pane.Markdown()
@@ -33,6 +40,14 @@ class UserManager(CRUDManager):
         # Setup callbacks
         self.user_list.param.watch(self.select_user, "value")
         self.add_user_button.on_click(self.add_new_user)
+
+        # Watch for changes in the reactive selected user
+        self.selected_user.param.watch(self._trigger_user_change, "value")
+
+    def _trigger_user_change(self, event):
+        """Handle actions that should occur when the selected user changes."""
+        logger.info(f"User changed to {self.selected_user.value}")
+        # Trigger other updates or actions here, such as updating UI components
 
     @property
     def get_prefix(self) -> str:
@@ -71,6 +86,14 @@ class UserManager(CRUDManager):
 
     def add_new_user(self, event=None):
         user_input = self.user_input.value.strip()
+
+        # Check if the user input is empty
+        if not user_input:
+            self.feedback_message.object = (
+                "**Warning:** Please provide a valid name for the user."
+            )
+            return
+
         formatted_name = self.format_name(user_input)
 
         # Check if user already exists
@@ -80,7 +103,7 @@ class UserManager(CRUDManager):
             )
             self.user_list.value = formatted_name
             self.user_list.param.trigger("value")
-            self.selected_user = formatted_name
+            self.selected_user.value = formatted_name  # Update the reactive user param
             self.user_input.value = ""  # Clear input after adding
 
         else:
@@ -89,7 +112,7 @@ class UserManager(CRUDManager):
                 "name": user_input,
                 "formatted_name": formatted_name,
                 "user_id": user_id,
-                "timestamp": datetime.datetime.utcnow().isoformat(),
+                "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
             }
             self.create_record(record)
             self.feedback_message.object = (
@@ -97,19 +120,20 @@ class UserManager(CRUDManager):
             )
             # Update user list and select the new user
             self.existing_users.append(formatted_name)
-            self.user_list.options = self.existing_users
+            self.user_list.options = [None, *self.existing_users]
             self.user_list.value = formatted_name
             self.user_list.param.trigger("options")
             self.user_list.param.trigger("value")
-            self.selected_user = formatted_name
+            self.selected_user.value = formatted_name  # Update the reactive user param
             self.user_input.value = ""  # Clear input after adding
 
     def select_user(self, event):
         """Handles the selection of an existing user."""
-        self.selected_user = event.new
-        self.feedback_message.object = (
-            f"**Info:** User '{self.selected_user}' selected."
-        )
+        self.selected_user.value = event.new  # Update the reactive user param
+        if self.selected_user.value:
+            self.feedback_message.object = (
+                f"**Info:** User '{self.selected_user.value}' selected."
+            )
 
     def view(self):
         return pn.Column(
