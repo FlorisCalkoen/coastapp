@@ -115,10 +115,10 @@ class SpatialQueryEngine:
             bbox, 
             lon,
             lat,
-            ST_AsWKB(ST_Transform(ST_GeomFromWKB(geometry), 'EPSG:4326', 'EPSG:4326')) AS geometry, 
+            ST_AsWKB(ST_Transform(ST_GeomFromWKB(geometry), 'EPSG:4326', 'EPSG:4326')) AS geometry,  -- Retrieve transect geometry as WKB
             ST_Distance(
-                ST_Transform(ST_GeomFromWKB(geometry), 'EPSG:4326', 'EPSG:3857'),
-                ST_Transform(ST_GeomFromText('{point_gdf_wkt}'), 'EPSG:4326', 'EPSG:3857')
+                ST_Transform(ST_Point(lon, lat), 'EPSG:4326', 'EPSG:3857'),  -- Transect origin in UTM
+                ST_Transform(ST_GeomFromText('{point_gdf_wkt}'), 'EPSG:4326', 'EPSG:3857')  -- Input point in UTM
             ) AS distance
         FROM 
             read_parquet('{href}')
@@ -133,8 +133,12 @@ class SpatialQueryEngine:
         """
 
         transect = self.con.execute(query).fetchdf()
-        transect["geometry"] = transect.geometry.map(lambda b: loads(bytes(b)))
-        return gpd.GeoDataFrame(transect, crs=self.proj_epsg)
+        transect["geometry"] = transect.geometry.map(
+            lambda b: loads(bytes(b))
+        )  # Convert WKB to geometry
+        return gpd.GeoDataFrame(
+            transect, crs="EPSG:4326"
+        )  # Return GeoDataFrame with transect geometry
 
 
 class SpatialQueryApp(param.Parameterized):
