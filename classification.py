@@ -185,6 +185,9 @@ class ClassificationManager(CRUDManager):
         self.is_challenging_button.button_type = "default"
         self.is_challenging = False
 
+        self.comment_input.value = ""
+        self.link_input.value = ""
+
     def save_classification(self, event=None):
         """Save the classification data to cloud storage."""
         record = self.collect_classification_data()
