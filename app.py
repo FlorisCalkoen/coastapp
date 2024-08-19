@@ -21,7 +21,7 @@ from shapely import wkt
 from shapely.geometry import Point
 from shapely.wkb import loads
 from users import UserManager
-from utils import create_offset_rectangle
+from utils import buffer_geometries_in_utm, create_offset_rectangle
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +97,8 @@ class SpatialQueryEngine:
         point = Point(x, y)
         point_gdf = gpd.GeoDataFrame(geometry=[point], crs="EPSG:4326")
         href = gpd.sjoin(self.quadtiles, point_gdf, predicate="contains").href.iloc[0]
-        point_wkt = point_gdf.to_crs(self.proj_epsg).geometry.to_wkt().iloc[0]
+        area_of_interest = buffer_geometries_in_utm(point_gdf, self.radius)
+        point_gdf_wkt = point_gdf.to_crs(self.proj_epsg).geometry.to_wkt().iloc[0]
 
         # Note: Handling azure and aws URLs
         if self.storage_backend == "azure":
@@ -106,7 +107,7 @@ class SpatialQueryEngine:
                 + f"?{sas_token}"
             )
 
-        minx, miny, maxx, maxy = point_gdf.total_bounds
+        minx, miny, maxx, maxy = area_of_interest.total_bounds
 
         query = f"""
         SELECT 
@@ -117,7 +118,7 @@ class SpatialQueryEngine:
             ST_AsWKB(ST_Transform(ST_GeomFromWKB(geometry), 'EPSG:4326', 'EPSG:4326')) AS geometry, 
             ST_Distance(
                 ST_Transform(ST_GeomFromWKB(geometry), 'EPSG:4326', 'EPSG:3857'),
-                ST_Transform(ST_GeomFromText('{point_wkt}'), 'EPSG:4326', 'EPSG:3857')
+                ST_Transform(ST_GeomFromText('{point_gdf_wkt}'), 'EPSG:4326', 'EPSG:3857')
             ) AS distance
         FROM 
             read_parquet('{href}')

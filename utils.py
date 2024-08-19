@@ -1,7 +1,6 @@
 import fsspec
 import geopandas as gpd
-from shapely.geometry import LineString, Polygon, box
-
+from shapely.geometry import LineString, Polygon, base, box
 
 
 def extract_spatial_extents(base_path, storage_options=None):
@@ -43,7 +42,9 @@ def extract_spatial_extents(base_path, storage_options=None):
         )
         crs.append(gdf.crs.to_epsg())
     if len(set(crs)) != 1:
-        raise ValueError("All GeoParquet files must have the same CRS.")
+        msg = "All GeoParquet files must have the same CRS."
+        raise ValueError(msg)
+
     return gpd.GeoDataFrame(extents, crs=crs[0])
 
 
@@ -86,3 +87,66 @@ def create_offset_rectangle(line: LineString, distance: float) -> Polygon:
     polygon = Polygon([left_start, left_end, right_end, right_start])
 
     return polygon
+
+
+def _buffer_geometry(
+    geom: base.BaseGeometry, src_crs: str | int, buffer_dist: float
+) -> base.BaseGeometry:
+    """
+    Buffers a single geometry in its appropriate UTM projection and reprojects it back to the original CRS.
+
+    Args:
+        geom (shapely.geometry.base.BaseGeometry): The geometry to buffer.
+        src_crs (Union[str, int]): The original CRS of the geometry.
+        buffer_dist (float): The buffer distance in meters.
+
+    Returns:
+        base.BaseGeometry: The buffered geometry in the original CRS.
+    """
+    # Estimate the UTM CRS based on the geometry's location
+    utm_crs = gpd.GeoSeries([geom], crs=src_crs).estimate_utm_crs()
+
+    # Reproject the geometry to UTM, apply the buffer, and reproject back to the original CRS
+    geom_utm = gpd.GeoSeries([geom], crs=src_crs).to_crs(utm_crs).iloc[0]
+    buffered_utm = geom_utm.buffer(buffer_dist)
+    buffered_geom = gpd.GeoSeries([buffered_utm], crs=utm_crs).to_crs(src_crs).iloc[0]
+
+    return buffered_geom
+
+
+def buffer_geometries_in_utm(
+    geo_data: gpd.GeoSeries | gpd.GeoDataFrame, buffer_dist: float
+) -> gpd.GeoSeries | gpd.GeoDataFrame:
+    """
+    Buffer all geometries in a GeoSeries or GeoDataFrame in their appropriate UTM projections and return
+    the buffered geometries in the original CRS.
+
+    Args:
+        geo_data (Union[gpd.GeoSeries, gpd.GeoDataFrame]): Input GeoSeries or GeoDataFrame containing geometries.
+        buffer_dist (float): Buffer distance in meters.
+
+    Returns:
+        Union[gpd.GeoSeries, gpd.GeoDataFrame]: Buffered geometries in the original CRS.
+    """
+    # Determine if the input is a GeoDataFrame or a GeoSeries
+    is_geodataframe = isinstance(geo_data, gpd.GeoDataFrame)
+
+    # Extract the geometry series from the GeoDataFrame, if necessary
+    geom_series = geo_data.geometry if is_geodataframe else geo_data
+
+    # Ensure the input data has a defined CRS
+    if geom_series.crs is None:
+        msg = "Input GeoSeries or GeoDataFrame must have a defined CRS."
+        raise ValueError(msg)
+
+    # Buffer each geometry using the UTM projection and return to original CRS
+    buffered_geoms = geom_series.apply(
+        lambda geom: _buffer_geometry(geom, geom_series.crs, buffer_dist)
+    )
+
+    # Return the modified GeoDataFrame or GeoSeries with the buffered geometries
+    if is_geodataframe:
+        geo_data = geo_data.assign(geometry=buffered_geoms)
+        return geo_data
+    else:
+        return buffered_geoms
