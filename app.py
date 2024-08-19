@@ -157,7 +157,8 @@ class SpatialQueryApp(param.Parameterized):
         )
 
         # Set the default transect without triggering a view update
-        self.set_transect(default_geometry, query_triggered=False, update=False)
+        self.default_geometry = default_geometry
+        self.set_transect(self.default_geometry, query_triggered=False, update=False)
 
         # Initialize the UI components (view initialized first)
         self.transect_view = self.initialize_view()
@@ -265,7 +266,7 @@ class SpatialQueryApp(param.Parameterized):
             self.set_transect(geometry, query_triggered=True)
         except Exception as e:
             logger.exception("Failed to query geometry. Reverting to default transect.")
-            self.set_transect(self.default_transect, query_triggered=False)
+            self.set_transect(self.default_geometry, query_triggered=False)
 
     def get_selected_geometry(self):
         """Returns the currently selected transect's geometry and metadata."""
