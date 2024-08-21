@@ -353,7 +353,7 @@ classification_manager = ClassificationManager(
 
 feature_manager = FeatureManager(spatial_query_app=spatial_query_app)
 intro_pane = pn.pane.Markdown("""
-    The Coastal Typology Annotation Tool is designed to collect a crowd-sourced machine learning training dataset that can be used to classify the coast and improve our understanding of coastal erosion on extensive spatial scales. Use the point-draw tool (three dots with an arrow) on the drop-down menu to the right of the map to fetch a transect. The classification focuses on identifying three key elements:
+    The Coastal Typology Annotation Tool is designed to collect a crowd-sourced machine learning training dataset that can be used to classify the coast and improve our understanding of coastal erosion on extensive spatial scales. Use the point-draw tool (three dots with an arrow) on the drop-down menu to the right of the map to draw a point (red) and fetch its nearest transect (might take a few seconds). The classification focuses on identifying three key elements:
 
     - **Shore Fabric**: The type of material composing the shore (e.g., sandy, rocky).
     - **Coastal Type**: The geomorphological and human-influenced landscape behind the shore (e.g., dunes, cliffs, urbanized areas).

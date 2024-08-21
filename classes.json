@@ -1,0 +1,37 @@
+{
+    "shore_type": {
+        "sandy_gravel_or_small_boulder_sediments": "Shorelines composed of unconsolidated materials such as sand, gravel, shingles, and small boulders (0.0652 to 512 mm in diameter).",
+        "muddy_sediments": "Shorelines dominated by fine-grained sediments like silt and clay, forming environments such as mudflats and tidal flats.",
+        "rocky_shore_platform_or_large_boulders": "Shorelines composed of solid rock formations, including shore platforms or large boulders greater than 512 mm in diameter.",
+        "ice_or_tundra": "Shorelines characterized by icy environments or tundra, including frozen sea edges, icebergs, and glaciers, typically found in polar regions.",
+        "no_sediment_or_shore_platform": "Shorelines with minimal visible sediment, typically around rocky cliffs, steep faces, or human-made structures such as sea walls."
+    },
+    "coastal_type": {
+        "cliffed_or_steep_coasts": "Coastal areas with cliffs or steep rock faces, with slopes of 30 degrees or greater.",
+        "moderately_sloped_coasts": "Coastal areas with gentle to moderate slopes (<30 degrees), typically composed of unconsolidated sediment or soft rock.",
+        "dune_coast": "Sandy coastal areas characterized by wind-formed dunes, often stabilized by vegetation such as grasses.",
+        "sandy_beach_plain": "Flat, sandy coastal plain, composed predominantly of sand with occasionally some sparse vegetation. This types typically occurs on coastal landforms such as spits, barriers, tombolos or tidal delta's.",
+        "coastal_inlet": "A narrow coastal waterway where the sea meets the land creating dynamic systems such as estuaries, tidal bays, and lagoons.",
+        "coastal_wetlands": "Coastal areas periodically flooded, including environments such as tidal flats, salt marshes, mangroves, sabkhas, and peatlands.",
+        "coastal_sediment_plain": "Low-lying coastal areas (<15m) with flat or gently sloping unconsolidated sediment, often featuring beach ridges or washover complexes.",
+        "coastal_bedrock_plain": "Low-lying coastal areas (<15m) primarily formed by consolidated bedrock, including skerries, with minimal elevation change.",
+        "coral_coast": "Tropical coastal areas dominated by coral reef ecosystems, formed by the accumulation of coral skeletons in shallow, warm waters.",
+        "engineered_coastal_structures": "Coastal areas dominated by engineered structures such as port areas, sea walls and dam's, where the natural coastal landscape is obscured or heavily modified."
+    },
+    "is_built_environment": {
+        "yes": "The coastal area is characterized predominantly by human-made structures, including buildings, industrial complexes, and port facilities.",
+        "no": "The coastal area remains largely natural, with minimal or no presence of built structures like buildings, industrial zones, or ports."
+    },
+    "has_defense": {
+        "yes": "Visible hard engineering structures, designed to protect against coastal erosion and flooding (e.g., sea walls, breakwaters), are present.",
+        "no": "No visible hard engineering structure, designed to protect against coastal erosion and flooding (e.g., sea walls, breakwaters), are present."
+    },
+    "landform_type": {
+        "mainland_coast": "A coastal area that is part of the main continental landmass, directly exposed to oceanic forces.",
+        "estuary": "A partially enclosed body of water, often characterized by tidal activity, including Fjords and Fjards.",
+        "barrier_island": "A long, narrow island lying parallel to the mainland, creating natural protection for the coast from waves and storms, while creating lagoons or bays behind it.",
+        "barrier": "A coastal landform, such as a sandbar or levee, separating the coastline from a lagoon or bay.",
+        "pocket_beach": "A small, enclosed beach nestled between headlands or cliffs.",
+        "spit": "A narrow strip of land, typically sand or gravel, extending into the sea or a bay, often formed by longshore drift."
+    }
+}

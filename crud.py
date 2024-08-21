@@ -71,11 +71,6 @@ class CRUDManager(ABC):
             record = json.load(f)
         return record
 
-
-        f = fsspec.open(signed_url, mode="r")
-        record_json = f.read()
-        return json.loads(record_json)
-
     def update_record(self, record_name: str, updated_data: dict):
         """Updates an existing record in the Azure storage backend using the az:// protocol."""
         record = self.read_record(record_name)
