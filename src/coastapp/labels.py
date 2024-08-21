@@ -11,7 +11,6 @@ logger = logging.getLogger(__name__)
 
 
 class LabelledTransectManager(CRUDManager):
-
     def __init__(self, storage_options, container_name, prefix, user_manager):
         super().__init__(container_name=container_name, storage_options=storage_options)
         self.prefix = prefix
@@ -21,7 +20,9 @@ class LabelledTransectManager(CRUDManager):
         self.user_manager = user_manager
 
         # Set up a watcher on the selected user parameter to trigger updates
-        self.user_manager.selected_user.param.watch(self._on_selected_user_change, "value")
+        self.user_manager.selected_user.param.watch(
+            self._on_selected_user_change, "value"
+        )
 
     def _on_selected_user_change(self, event):
         """Callback triggered when selected_user changes."""

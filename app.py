@@ -91,7 +91,7 @@ intro_pane = pn.pane.Markdown("""
     - **Coastal Type**: The geomorphological and human-influenced landscape behind the shore (e.g., dunes, cliffs, urbanized areas).
     - **Defenses**: Whether or not a coastal defense system (e.g., seawalls, dykes) is present.
 
-    Contributors may also suggest new classes if absolutely necessary, though the goal is to maintain a minimal and effective classification system. 
+    Contributors may also suggest new classes if absolutely necessary, though the goal is to maintain a minimal and effective classification system.
 """)
 # Combine additional features in one column
 additional_features_view = pn.Column(

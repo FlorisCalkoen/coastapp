@@ -11,8 +11,10 @@ RUN conda config --set always_yes yes --set changeps1 no && \
 RUN conda install -n base conda-libmamba-solver && \
     conda config --set solver libmamba
 
-# Copy the environment.yaml into the Docker image and create a conda environment based on it
+# Copy the environment.yaml into the Docker image
 COPY environment.yaml .
+
+# Create the conda environment from environment.yaml
 RUN conda env create -f environment.yaml && \
     conda install -c conda-forge conda-pack && \
     conda-pack -n $(head -1 environment.yaml | cut -f 2 -d ":" | sed -e 's/^[[:space:]]*//' -) -o /tmp/env.tar && \
@@ -36,20 +38,22 @@ RUN apt-get update && \
     apt-get purge && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# Copy your app files and scripts into the Docker image
-COPY src/coastapp /app/coastapp
-COPY scripts/bash/run_server.sh /app/
-COPY scripts/bash/setup_run_server.sh /app/
-COPY .env /app/
-
 # Set the working directory to /app
 WORKDIR /app
 
-# Ensure the `src` directory is added to the Python path
-ENV PYTHONPATH="/app:$PYTHONPATH"
+# Copy the source code, pyproject.toml, and other necessary files into /app
+COPY src /app/src
+COPY pyproject.toml /app/
+COPY app.py /app/
+COPY .env /app/
+COPY run_server.sh /app/
+COPY setup_run_server.sh /app/
+
+# Activate the conda environment and install the package
+RUN /bin/bash -c "source /env/bin/activate && pip install ."
 
 # Open port 8000 to traffic
 EXPOSE 8000
 
 # Ensure the environment is activated when the container starts and run your setup script
-ENTRYPOINT ["/bin/bash", "-c", "source /env/bin/activate && exec python -m panel serve coastapp/app.py --address 0.0.0.0 --port 8000 --allow-websocket-origin='*'"]
+ENTRYPOINT ["/bin/bash", "-c", "source /env/bin/activate && exec python -m panel serve app.py --address 0.0.0.0 --port 8000 --allow-websocket-origin='*'"]

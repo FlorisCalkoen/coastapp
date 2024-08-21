@@ -30,7 +30,9 @@ class Renamer(CRUDManager):
         """
         user = record["user"]
         transect_id = record["transect_id"]
-        timestamp = record.get("time", datetime.datetime.now(datetime.UTC).isoformat())  # Handle "time" key
+        timestamp = record.get(
+            "time", datetime.datetime.now(datetime.UTC).isoformat()
+        )  # Handle "time" key
 
         # Ensure the timestamp is a datetime object, if it's a string convert it
         if isinstance(timestamp, str):

@@ -7,11 +7,14 @@ import fsspec
 
 logger = logging.getLogger(__name__)
 
+
 class CRUDManager(ABC):
     def __init__(self, container_name, storage_options):
         self.container_name = container_name
         self.storage_options = storage_options
-        self.container_base_url = f"https://{storage_options['account_name']}.blob.core.windows.net"
+        self.container_base_url = (
+            f"https://{storage_options['account_name']}.blob.core.windows.net"
+        )
         self.container_base_uri = f"az://{self.container_name}"
 
     @property

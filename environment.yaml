@@ -16,6 +16,7 @@ dependencies:
 
   # Development Tools
   - pre-commit
+  - hatch
 
   # Jupyter
   - ipykernel
@@ -53,5 +54,6 @@ dependencies:
   # Install the project and dependencies
   - pip:
       - duckdb  # Conda binaries are usually delayed
-      - -e .
+      # - -e .
+
 

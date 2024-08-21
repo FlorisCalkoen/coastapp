@@ -4,21 +4,18 @@ build-backend = "hatchling.build"
 
 [project]
 name = "coastapp"
-version = "0.1.0"
+version = "0.2.0"  # Define the version statically here
 description = "Coastal Typology Application"
 authors = [{ name = "Floris Calkoen", email = "your-email@example.com"}]
 license = { text = "MIT" }
 requires-python = ">=3.11"
 dependencies = []
 
-[tool.hatch.version]
-path = "src/coastapp/__init__.py"
-
 [tool.ruff]
 line-length = 88
 src = ["src"]
 target-version = "py311"
-exclude = []
+exclude = ["*.json"]  # Exclude all JSON files from ruff checks
 extend-ignore = [
   "E501",  # Line too long
   "E402",  # Module level import not at top of file

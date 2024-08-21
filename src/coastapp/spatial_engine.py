@@ -18,16 +18,13 @@ from shapely.wkb import loads
 
 from coastapp.utils import buffer_geometries_in_utm, create_offset_rectangle
 
-from .utils import (  # Import relative to coastapp package
-    buffer_geometries_in_utm,
-    create_offset_rectangle,
-)
 
 logger = logging.getLogger(__name__)
 
 dotenv.load_dotenv(override=True)
 sas_token = os.getenv("APPSETTING_GCTS_AZURE_STORAGE_SAS_TOKEN")
 storage_options = {"account_name": "coclico", "sas_token": sas_token}
+
 
 class SpatialQueryEngine:
     def __init__(
@@ -109,9 +106,9 @@ class SpatialQueryEngine:
         minx, miny, maxx, maxy = area_of_interest.total_bounds
 
         query = f"""
-        SELECT 
-            transect_id, 
-            bbox, 
+        SELECT
+            transect_id,
+            bbox,
             lon,
             lat,
             ST_AsWKB(ST_Transform(ST_GeomFromWKB(geometry), 'EPSG:4326', 'EPSG:4326')) AS geometry,  -- Retrieve transect geometry as WKB
@@ -119,14 +116,14 @@ class SpatialQueryEngine:
                 ST_Transform(ST_Point(lon, lat), 'EPSG:4326', 'EPSG:3857'),  -- Transect origin in UTM
                 ST_Transform(ST_GeomFromText('{point_gdf_wkt}'), 'EPSG:4326', 'EPSG:3857')  -- Input point in UTM
             ) AS distance
-        FROM 
+        FROM
             read_parquet('{href}')
         WHERE
             bbox.xmin <= {maxx} AND
             bbox.ymin <= {maxy} AND
             bbox.xmax >= {minx} AND
             bbox.ymax >= {miny}
-        ORDER BY 
+        ORDER BY
             distance
         LIMIT 1;
         """
