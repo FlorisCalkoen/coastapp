@@ -118,8 +118,8 @@ class ClassificationManager(CRUDManager):
         """Generate a filename for the classification record."""
         user = record["user"]
         transect_id = record["transect_id"]
-        timestamp = datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%S")
-        return f"{user}_{transect_id}_{timestamp}.json"
+        time = datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%S")
+        return f"{user}_{transect_id}_{time}.json"
 
     def collect_classification_data(self) -> dict:
         """Collect data from the user manager, classification schema, and spatial query app."""
@@ -161,7 +161,7 @@ class ClassificationManager(CRUDManager):
             "lon": float(lon),  # Convert to float for JSON serialization
             "lat": float(lat),  # Convert to float for JSON serialization
             "geometry": geometry.wkt,
-            "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
+            "time": datetime.datetime.now(datetime.UTC).isoformat(),
             "shore_type": shore_type,
             "coastal_type": coastal_type,
             "landform_type": landform_type,

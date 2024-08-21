@@ -4,8 +4,9 @@ import fsspec
 import geopandas as gpd
 import hvplot.pandas  # noqa
 import pandas as pd
-from coastapp.crud import CRUDManager
 from shapely import wkt
+
+from coastapp.crud import CRUDManager
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ class LabelledTransectManager(CRUDManager):
     def format_dataframe(self):
         """Ensure only the latest record per user and transect_id is kept, sorted by timestamp."""
         if self.df is not None and not self.df.empty:
-            self.df = self.df.sort_values(by="timestamp").drop_duplicates(
+            self.df = self.df.sort_values(by="time").drop_duplicates(
                 subset=["user", "transect_id"], keep="last"
             )
 
@@ -57,7 +58,7 @@ class LabelledTransectManager(CRUDManager):
         # Filter the dataframe for the given user and sort by timestamp
         self.user_df = (
             self.df[self.df["user"] == user]
-            .sort_values(by="timestamp")
+            .sort_values(by="time")
             .reset_index(drop=True)
         )
 
@@ -85,12 +86,12 @@ class LabelledTransectManager(CRUDManager):
 
         if all_records:
             df = pd.DataFrame(all_records)
-            df["timestamp"] = pd.to_datetime(df["timestamp"])
+            df["time"] = pd.to_datetime(df["time"])
             df["geometry"] = df["geometry"].apply(wkt.loads)
             self.df = gpd.GeoDataFrame(df, geometry="geometry", crs="EPSG:4326")
         else:
             self.df = gpd.GeoDataFrame(
-                columns=["user", "transect_id", "timestamp", "lon", "lat", "geometry"]
+                columns=["user", "transect_id", "time", "lon", "lat", "geometry"]
             )
 
         self.format_dataframe()
@@ -102,7 +103,7 @@ class LabelledTransectManager(CRUDManager):
             self.load()
 
         record_df = pd.DataFrame([record])
-        record_df["timestamp"] = pd.to_datetime(record_df["timestamp"])
+        record_df["time"] = pd.to_datetime(record_df["time"])
         record_df["geometry"] = record_df["geometry"].apply(wkt.loads)
 
         record_gdf = gpd.GeoDataFrame(record_df, geometry="geometry", crs="EPSG:4326")
@@ -162,9 +163,9 @@ class LabelledTransectManager(CRUDManager):
         """Format the record to match the classification schema."""
         record["geometry"] = record["geometry"].wkt  # Convert geometry to WKT format
 
-        if isinstance(record["timestamp"], pd.Timestamp):
-            record["timestamp"] = record[
-                "timestamp"
+        if isinstance(record["time"], pd.Timestamp):
+            record["time"] = record[
+                "time"
             ].isoformat()  # Format timestamp to ISO string
 
         # Ensure all required fields are present, fill with None if missing
@@ -174,7 +175,7 @@ class LabelledTransectManager(CRUDManager):
             "lon",
             "lat",
             "geometry",
-            "timestamp",
+            "time",
             "shore_fabric",
             "coastal_type",
             "defenses",
