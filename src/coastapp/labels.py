@@ -4,7 +4,7 @@ import fsspec
 import geopandas as gpd
 import hvplot.pandas  # noqa
 import pandas as pd
-from crud import CRUDManager
+from coastapp.crud import CRUDManager
 from shapely import wkt
 
 logger = logging.getLogger(__name__)

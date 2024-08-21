@@ -1,7 +1,7 @@
 import logging
 
 import panel as pn
-from crud import CRUDManager
+from coastapp.crud import CRUDManager
 
 logger = logging.getLogger(__name__)
 

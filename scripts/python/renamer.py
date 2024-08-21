@@ -5,7 +5,7 @@ import os
 
 import dotenv
 import fsspec
-from crud import CRUDManager
+from coastapp.crud import CRUDManager
 
 logger = logging.getLogger(__name__)
 

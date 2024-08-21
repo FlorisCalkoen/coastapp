@@ -12,16 +12,16 @@ import panel as pn
 import param
 import pystac_client
 import shapely
-from classification import ClassificationManager
-from feature import FeatureManager
+from coastapp.classification import ClassificationManager
+from coastapp.feature import FeatureManager
 from holoviews import streams
-from labels import LabelledTransectManager
-from schema import ClassificationSchemaManager
+from coastapp.labels import LabelledTransectManager
+from coastapp.schema import ClassificationSchemaManager
 from shapely import wkt
 from shapely.geometry import Point
 from shapely.wkb import loads
-from users import UserManager
-from utils import buffer_geometries_in_utm, create_offset_rectangle
+from coastapp.users import UserManager
+from coastapp.utils import buffer_geometries_in_utm, create_offset_rectangle
 
 logger = logging.getLogger(__name__)
 

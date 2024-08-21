@@ -14,13 +14,15 @@ dependencies:
   - ciso8601
   - cattrs
 
+  # Development Tools
+  - pre-commit
+
   # Jupyter
   - ipykernel
 
-  # interactive vizualization libraries
+  # Interactive visualization libraries
   - bokeh
   - geoviews
-  - geoviews-core
   - holoviews
   - hvplot
   - ipyleaflet
@@ -48,6 +50,8 @@ dependencies:
   - pystac-client
   - pyperclip
 
+  # Install the project and dependencies
   - pip:
-      - duckdb # conda binaries are usually delayed
+      - duckdb  # Conda binaries are usually delayed
       - -e .
+

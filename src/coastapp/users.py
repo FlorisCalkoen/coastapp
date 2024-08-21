@@ -7,7 +7,7 @@ import uuid
 import fsspec
 import panel as pn
 import param
-from crud import CRUDManager
+from coastapp.crud import CRUDManager
 
 logger = logging.getLogger(__name__)
 
