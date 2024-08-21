@@ -2,9 +2,11 @@ import datetime
 import json
 import logging
 import os
+from copy import deepcopy
 
 import dotenv
 import fsspec
+
 from coastapp.crud import CRUDManager
 
 logger = logging.getLogger(__name__)
@@ -51,34 +53,40 @@ class Renamer(CRUDManager):
     ) -> dict:
         """
         Renames keys and values in the record based on provided mappings.
-        Also adds new attributes like `is_built_environment` and `landform_type`.
+        Works on a copy of the record to avoid in-place modifications.
         """
+
+        # Create a deep copy of the record to avoid modifying the original
+        updated_record = deepcopy(record)
+
         # Rename keys
         for old_key, new_key in key_mapping.items():
-            if old_key in record:
-                record[new_key] = record.pop(old_key)
+            if old_key in updated_record:
+                updated_record[new_key] = updated_record.pop(old_key)
 
         # Rename values
         for key, replacements in value_mapping.items():
-            if key in record and record[key] in replacements:
-                record[key] = replacements[record[key]]
+            if key in updated_record and updated_record[key] in replacements:
+                updated_record[key] = replacements[updated_record[key]]
 
-        # Set the `is_built_environment` attribute based on coastal_type
-        if "built-up area" in record.get("coastal_type", "").lower():
-            record["is_built_environment"] = True
-        else:
-            record["is_built_environment"] = False
-
-        # Add `landform_type` attribute as an empty string (for future use)
-        record["landform_type"] = ""
-
-        return record
+        return updated_record
 
     def _build_storage_path(self, prefix: str, record_name: str) -> str:
         """
         Build the full storage path for a record based on the prefix.
         """
         return f"az://{self.container_name}/{prefix}/{record_name}"
+
+    def set_built_environment_flag(self, record: dict) -> bool:
+        """
+        Determines whether the coastal area is built-up based on the coastal_type.
+        """
+        built_environment_classes = [
+            "enh:Coastal bedrock plain with built-up area",
+            "Coastal plain with built-up area",
+        ]
+        original_coastal_type = record.get("coastal_type", "")
+        return original_coastal_type in built_environment_classes
 
     def process_records(
         self,
@@ -99,10 +107,18 @@ class Renamer(CRUDManager):
                 # Read the original record
                 record = self.read_record(record_name)
 
-                # Rename keys and values, and add new attributes like `is_built_environment` and `landform_type`
+                # Generate the updated record
                 updated_record = self.rename_keys_and_values(
                     record, key_mapping, value_mapping
                 )
+
+                # Set the `is_built_environment` attribute based on original coastal_type
+                updated_record["is_built_environment"] = (
+                    self.set_built_environment_flag(record)
+                )
+
+                # Set additional fields
+                updated_record["landform_type"] = ""  # Add landform logic as needed
 
                 # Save the updated record with the correct prefix
                 self.save_record_with_prefix(updated_record, record_name, prefix_to_use)
@@ -132,21 +148,31 @@ class Renamer(CRUDManager):
 if __name__ == "__main__":
     manager = Renamer("typology", storage_options)
 
-    # Define key and value mappers based on original and revised classifications
     key_mapping = {
-        "timestamp": "time",  # Renamed to "time"
         "shore_fabric": "shore_type",  # Renamed to "shore_type"
-        "defenses": "has_defense",  # Renamed to "has_defenses"
+        "defenses": "has_defense",  # Renamed to "has_defense"
+        "timestamp": "time",  # Renamed to "time"
     }
 
     value_mapping = {
+        "shore_type": {
+            "Sandy, gravel or small boulder sediments": "sandy_gravel_or_small_boulder_sediments",
+            "Muddy sediments": "muddy_sediments",
+            "Rocky shore platform or large boulders": "rocky_shore_platform_or_large_boulders",
+            "Ice/tundra": "ice_or_tundra",
+            "No sediment or shore platform": "no_sediment_or_shore_platform",
+        },
         "coastal_type": {
-            "Estuary inlet": "coastal_inlet",  # Adjusted name in revised schema
-            "Tidal flat's, including marshes, mangroves and sabkha's.": "coastal_wetlands",  # Consolidated class
-            "Coastal plain without built-up areas": "coastal_sediment_plain",  # Corrected name, no built-up reference
-            "Coastal plain with built-up area": "coastal_sediment_plain",  # Same class, logic for built-up is separate
+            "Cliffed or steep coasts": "cliffed_or_steep_coasts",
+            "Dune coast": "dune_coast",
+            "Sandy beach plain": "sandy_beach_plain",
+            "Estuary inlet": "coastal_inlet",
+            "Tidal flat's, including marshes, mangroves and sabkha's.": "coastal_wetlands",
+            "Coastal plain without built-up areas": "coastal_sediment_plain",
+            "Coastal plain with built-up area": "coastal_sediment_plain",
+            "Coastal bedrock plain": "coastal_bedrock_plain",
+            "enh:Coastal bedrock plain with built-up area": "coastal_bedrock_plain",
         },
     }
 
-    # Process records and save to a different prefix for testing (e.g., "typology/labels2")
-    manager.process_records(key_mapping, value_mapping, new_prefix="labels2")
+    manager.process_records(key_mapping, value_mapping, new_prefix="labels")

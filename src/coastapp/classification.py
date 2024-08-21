@@ -3,6 +3,7 @@ import logging
 
 import pandas as pd
 import panel as pn
+
 from coastapp.crud import CRUDManager
 
 logger = logging.getLogger(__name__)
@@ -60,7 +61,12 @@ class ClassificationManager(CRUDManager):
 
     def setup_schema_callbacks(self):
         """Setup callbacks for classification schema dropdowns to enable save button."""
-        for attr in ["shore_fabric", "coastal_type", "defenses"]:
+        for attr in [
+            "shore_type",
+            "coastal_type",
+            "is_built_environment",
+            "has_defense",
+        ]:
             if attr in self.classification_schema_manager.attribute_dropdowns:
                 self.classification_schema_manager.attribute_dropdowns[
                     attr
@@ -71,14 +77,17 @@ class ClassificationManager(CRUDManager):
         # Update the classification widgets based on the fetched record
         self.spatial_query_app.current_transect_id = record["transect_id"]
         self.classification_schema_manager.attribute_dropdowns[
-            "shore_fabric"
-        ].value = record.get("shore_fabric")
+            "shore_type"
+        ].value = record.get("shore_type")
         self.classification_schema_manager.attribute_dropdowns[
             "coastal_type"
         ].value = record.get("coastal_type")
         self.classification_schema_manager.attribute_dropdowns[
-            "defenses"
-        ].value = record.get("defenses")
+            "is_built_environment"
+        ].value = record.get("is_built_environment")
+        self.classification_schema_manager.attribute_dropdowns[
+            "has_defense"
+        ].value = record.get("has_defense")
         self.comment_input.value = record.get("comment", "")
         self.link_input.value = record.get("link", "")
         self.is_challenging_button.value = record.get("is_challenging", False)
@@ -117,14 +126,20 @@ class ClassificationManager(CRUDManager):
         user = self.user_manager.selected_user.value
 
         # Collect selected classes
-        shore_fabric = self.classification_schema_manager.attribute_dropdowns[
-            "shore_fabric"
+        shore_type = self.classification_schema_manager.attribute_dropdowns[
+            "shore_type"
         ].value
         coastal_type = self.classification_schema_manager.attribute_dropdowns[
             "coastal_type"
         ].value
-        defenses = self.classification_schema_manager.attribute_dropdowns[
-            "defenses"
+        landform_type = self.classification_schema_manager.attribute_dropdowns[
+            "landform_type"
+        ].value
+        is_built_environment = self.classification_schema_manager.attribute_dropdowns[
+            "is_built_environment"
+        ].value
+        has_defense = self.classification_schema_manager.attribute_dropdowns[
+            "has_defense"
         ].value
 
         # Collect spatial data from the GeoDataFrame in spatial_query_app
@@ -147,9 +162,11 @@ class ClassificationManager(CRUDManager):
             "lat": float(lat),  # Convert to float for JSON serialization
             "geometry": geometry.wkt,
             "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
-            "shore_fabric": shore_fabric,
+            "shore_type": shore_type,
             "coastal_type": coastal_type,
-            "defenses": defenses,
+            "landform_type": landform_type,
+            "is_built_environment": is_built_environment,
+            "has_defense": has_defense,
             "is_challenging": self.is_challenging,
             "comment": self.comment_input.value,
             "link": self.link_input.value,
@@ -161,9 +178,10 @@ class ClassificationManager(CRUDManager):
         required_fields = [
             "user",
             "transect_id",
-            "shore_fabric",
+            "shore_type",
             "coastal_type",
-            "defenses",
+            "is_built_environment",
+            "has_defense",
             "lon",
             "lat",
         ]
@@ -212,7 +230,12 @@ class ClassificationManager(CRUDManager):
 
     def enable_save_button(self, event=None):
         """Enable the save button if all required fields are filled."""
-        required_dropdowns = ["shore_fabric", "coastal_type", "defenses"]
+        required_dropdowns = [
+            "shore_type",
+            "coastal_type",
+            "is_built_environment",
+            "has_defense",
+        ]
         if all(
             self.classification_schema_manager.attribute_dropdowns[dropdown].value
             for dropdown in required_dropdowns

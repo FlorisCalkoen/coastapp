@@ -1,6 +1,7 @@
 import logging
 
 import panel as pn
+
 from coastapp.crud import CRUDManager
 
 logger = logging.getLogger(__name__)
@@ -62,21 +63,26 @@ class ClassificationSchemaManager(CRUDManager):
             attribute: [None, *list(classes.keys())]
             for attribute, classes in self.class_mapping.items()
         }
-        return {
-            attribute: pn.widgets.Select(
-                name=attribute,
+
+        dropdowns = {}
+        for attribute in self.class_mapping:
+            if attribute == "landform_type":
+                name = "[Experimental]: " + attribute
+            else:
+                name = attribute
+
+            dropdowns[attribute] = pn.widgets.Select(
+                name=name,
                 options=dropdown_options[attribute],
                 value=None,
             )
-            for attribute in self.class_mapping
-        }
+        return dropdowns
 
     def _on_dropdown_change(self, event):
         """
         Callback function to handle change in dropdown value and update the classification display pane.
         """
         classification_string = "**Current Classification:**\n\n"
-        description_string = ""
 
         for attribute, dropdown in self.attribute_dropdowns.items():
             selected_class = dropdown.value
