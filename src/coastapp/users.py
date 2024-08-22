@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class UserName(param.Parameterized):
-    value = param.String(default="", doc="Name of the current user")
+    value = param.String(default="", allow_None=True, doc="Name of the current user")
 
 
 class UserManager(CRUDManager):

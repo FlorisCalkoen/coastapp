@@ -122,13 +122,16 @@ class Renamer(CRUDManager):
 
                 # Save the updated record with the correct prefix
 
+                updated_record["datetime_updated"] = updated_record["datetime_created"]
+
                 sort_order = [
                     "user",
                     "transect_id",
                     "lon",
                     "lat",
                     "geometry",
-                    "time",
+                    "datetime_created",
+                    "datetime_updated",
                     "shore_type",
                     "coastal_type",
                     "landform_type",
@@ -171,9 +174,9 @@ if __name__ == "__main__":
     manager = Renamer("typology", storage_options)
 
     key_mapping = {
-        "shore_fabric": "shore_type",  # Renamed to "shore_type"
-        "defenses": "has_defense",  # Renamed to "has_defense"
-        "timestamp": "time",  # Renamed to "time"
+        # "shore_fabric": "shore_type",  # Renamed to "shore_type"
+        # "defenses": "has_defense",  # Renamed to "has_defense"
+        "time": "datetime_created",  # Renamed to "time"
     }
 
     value_mapping = {
@@ -195,8 +198,8 @@ if __name__ == "__main__":
         #         "Coastal bedrock plain": "coastal_bedrock_plain",
         #         "enh:Coastal bedrock plain with built-up area": "coastal_bedrock_plain",
         #     },
-        "is_built_environment": {True: "true", False: "false"},
-        "has_defense": {"yes": "true", "no": "false"},
+        # "is_built_environment": {True: "true", False: "false"},
+        # "has_defense": {"yes": "true", "no": "false"},
     }
 
     manager.process_records(key_mapping, value_mapping, new_prefix="labels")

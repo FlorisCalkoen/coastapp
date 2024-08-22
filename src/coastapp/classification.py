@@ -10,6 +10,24 @@ logger = logging.getLogger(__name__)
 
 
 class ClassificationManager(CRUDManager):
+    DEFAULT_RECORD_SCHEMA = {
+        "user": "",
+        "transect_id": "",
+        "lon": "",
+        "lat": "",
+        "geometry": "",
+        "datetime_created": "",
+        "datetime_updated": "",
+        "shore_type": "",
+        "coastal_type": "",
+        "landform_type": "",
+        "is_built_environment": "",
+        "has_defense": "",
+        "is_challenging": False,
+        "comment": "",
+        "link": "",
+    }
+
     def __init__(
         self,
         storage_options,
@@ -25,6 +43,7 @@ class ClassificationManager(CRUDManager):
         self.classification_schema_manager = classification_schema_manager
         self.spatial_query_app = spatial_query_app
         self.is_challenging = False
+        self.record = self.DEFAULT_RECORD_SCHEMA.copy()
 
         # Panel widgets
         self.save_button = pn.widgets.Button(
@@ -93,17 +112,23 @@ class ClassificationManager(CRUDManager):
         self.is_challenging_button.value = record.get("is_challenging", False)
         self.spatial_query_app.set_transect(record)
 
+    def reset_record(self):
+        """Reset the record to the default schema."""
+        self.record = self.DEFAULT_RECORD_SCHEMA.copy()
+
     def load_previous_transect(self, event=None):
         """Callback to load the previous transect."""
         record = self.spatial_query_app.labelled_transect_manager.get_previous_record()
         if record:
-            self.load_transect_data_into_widgets(record)
+            self.record.update(record)
+            self.load_transect_data_into_widgets(self.record)
 
     def load_next_transect(self, event=None):
         """Callback to load the next transect."""
         record = self.spatial_query_app.labelled_transect_manager.get_next_record()
         if record:
-            self.load_transect_data_into_widgets(record)
+            self.record.update(record)
+            self.load_transect_data_into_widgets(self.record)
 
     def iterate_labelled_transects_view(self):
         """Return a Row containing the Previous and Next transect buttons."""
@@ -154,14 +179,22 @@ class ClassificationManager(CRUDManager):
             self.save_feedback_message.object = "**Error:** No valid transect selected."
             return None
 
-        # Create the record
+        # Determine time values
+        current_datetime = datetime.datetime.now(datetime.UTC).isoformat()
+
+        # Set time_created if it doesn't exist, otherwise update time_updated
+        datetime_created = self.record.get("datetime_created", current_datetime)
+        datetime_updated = current_datetime
+
+        # Collect data locally before updating self.record
         record = {
             "user": user,
             "transect_id": transect_id,
-            "lon": float(lon),  # Convert to float for JSON serialization
-            "lat": float(lat),  # Convert to float for JSON serialization
-            "geometry": geometry.wkt,
-            "time": datetime.datetime.now(datetime.UTC).isoformat(),
+            "lon": lon,
+            "lat": lat,
+            "geometry": geometry.wkt,  # Store WKT format
+            "datetime_created": datetime_created,
+            "datetime_updated": datetime_updated,
             "shore_type": shore_type,
             "coastal_type": coastal_type,
             "landform_type": landform_type,
@@ -171,7 +204,10 @@ class ClassificationManager(CRUDManager):
             "comment": self.comment_input.value,
             "link": self.link_input.value,
         }
-        return record
+
+        # Update self.record only after all data is collected
+        self.record.update(record)
+        return self.record
 
     def validate_record(self, record: dict) -> bool:
         """Validate that all required fields are filled."""
@@ -185,12 +221,25 @@ class ClassificationManager(CRUDManager):
             "lon",
             "lat",
         ]
+
+        # Check if required fields are present and non-empty
         for field in required_fields:
             if not record.get(field):
                 self.save_feedback_message.object = (
                     f"**Error:** {field.replace('_', ' ').capitalize()} is required."
                 )
                 return False
+
+        # Additional validation for numeric fields
+        try:
+            float(record["lon"])
+            float(record["lat"])
+        except ValueError:
+            self.save_feedback_message.object = (
+                "**Error:** Invalid longitude or latitude."
+            )
+            return False
+
         return True
 
     def reset_dropdowns(self):
@@ -227,6 +276,7 @@ class ClassificationManager(CRUDManager):
 
         # Reset the dropdowns after saving
         self.reset_dropdowns()
+        self.reset_record()
 
     def enable_save_button(self, event=None):
         """Enable the save button if all required fields are filled."""
@@ -241,6 +291,8 @@ class ClassificationManager(CRUDManager):
             for dropdown in required_dropdowns
         ):
             self.save_button.disabled = False
+        else:
+            self.save_button.disabled = True
 
     def toggle_is_challenging(self, event):
         """Toggle the 'is_challenging' flag and change button color."""
