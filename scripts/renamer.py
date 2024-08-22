@@ -88,6 +88,129 @@ class Renamer(CRUDManager):
         original_coastal_type = record.get("coastal_type", "")
         return original_coastal_type in built_environment_classes
 
+    def filter_records(self, records: list[dict]) -> list[dict]:
+        """
+        Filters the list of records to keep the latest record per user per transect_id.
+
+        Args:
+            records (list[dict]): A list of records, each record is a dictionary containing 'user', 'transect_id',
+                                'datetime_created', 'datetime_updated', and other fields.
+
+        Returns:
+            list[dict]: A list of records containing the latest record per user per transect_id.
+        """
+
+        # Ensure datetime fields are in correct format and sort the records
+        for record in records:
+            record["datetime_created"] = datetime.datetime.fromisoformat(
+                record["datetime_created"]
+            )
+            record["datetime_updated"] = datetime.datetime.fromisoformat(
+                record["datetime_updated"]
+            )
+
+        # Sort the list of records by user, transect_id, datetime_created, and datetime_updated
+        sorted_records = sorted(
+            records,
+            key=lambda r: (
+                r["user"],
+                r["transect_id"],
+                r["datetime_created"],
+                r["datetime_updated"],
+            ),
+        )
+
+        # Create a dictionary to store the latest record per user and transect_id
+        latest_records = {}
+
+        for record in sorted_records:
+            key = (record["user"], record["transect_id"])
+
+            # If the key doesn't exist or the current record is newer, update the dictionary
+            if key not in latest_records:
+                latest_records[key] = record
+            else:
+                existing_record = latest_records[key]
+                if record["datetime_created"] > existing_record["datetime_created"] or (
+                    record["datetime_created"] == existing_record["datetime_created"]
+                    and record["datetime_updated"] > existing_record["datetime_updated"]
+                ):
+                    latest_records[key] = record
+
+        # Return the latest records as a list
+        return list(latest_records.values())
+
+    def process_filter_records(self, new_prefix: str | None = None):
+        """
+        Reads all records from cloud storage, filters the latest record per user and transect_id,
+        and saves the filtered records back to cloud storage.
+        """
+        # File storage and prefix setup
+        prefix_to_use = new_prefix if new_prefix else self.get_prefix
+        fs = fsspec.filesystem("az", **self.storage_options)
+
+        # Load all records from cloud storage
+        labelled_files = fs.glob(f"{self.base_uri}/*.json")
+        all_records = []
+
+        for file in labelled_files:
+            record_name = file.split("/")[-1]
+            try:
+                # Read the original record and append it to the list
+                record = self.read_record(record_name)
+                all_records.append(record)
+            except Exception as e:
+                logger.error(f"Failed to read record {record_name}: {e}", exc_info=True)
+
+        # If no records found, return early
+        if not all_records:
+            logger.info("No records found in cloud storage.")
+            return
+
+        # Filter records to get the latest per user and transect_id
+        filtered_records = self.filter_records(all_records)
+
+        # Save the filtered records back to cloud storage
+        for record in filtered_records:
+            try:
+                # Define the file name for the record
+                record_name = f"{record['user']}_{record['transect_id']}.json"
+
+                # Ensure proper order in saving the fields
+                sort_order = [
+                    "user",
+                    "transect_id",
+                    "lon",
+                    "lat",
+                    "geometry",
+                    "datetime_created",
+                    "datetime_updated",
+                    "shore_type",
+                    "coastal_type",
+                    "landform_type",
+                    "is_built_environment",
+                    "has_defense",
+                    "is_challenging",
+                    "comment",
+                    "link",
+                ]
+
+                # Ensure the record is saved in the correct order
+                ordered_record = {k: record.get(k) for k in sort_order if k in record}
+                ordered_record["datetime_created"] = ordered_record[
+                    "datetime_created"
+                ].isoformat()
+                ordered_record["datetime_updated"] = ordered_record[
+                    "datetime_updated"
+                ].isoformat()
+
+                # Save the filtered record with the correct prefix
+                self.save_record_with_prefix(ordered_record, record_name, prefix_to_use)
+                logger.info(f"Record {record_name} saved successfully.")
+
+            except Exception as e:
+                logger.error(f"Failed to save record {record_name}: {e}", exc_info=True)
+
     def process_records(
         self,
         key_mapping: dict[str, str],
@@ -111,18 +234,6 @@ class Renamer(CRUDManager):
                 updated_record = self.rename_keys_and_values(
                     record, key_mapping, value_mapping
                 )
-
-                # # Set the `is_built_environment` attribute based on original coastal_type
-                # updated_record["is_built_environment"] = (
-                #     self.set_built_environment_flag(record)
-                # )
-
-                # # Set additional fields
-                # updated_record["landform_type"] = ""  # Add landform logic as needed
-
-                # Save the updated record with the correct prefix
-
-                updated_record["datetime_updated"] = updated_record["datetime_created"]
 
                 sort_order = [
                     "user",
@@ -176,7 +287,7 @@ if __name__ == "__main__":
     key_mapping = {
         # "shore_fabric": "shore_type",  # Renamed to "shore_type"
         # "defenses": "has_defense",  # Renamed to "has_defense"
-        "time": "datetime_created",  # Renamed to "time"
+        # "timestamp": "datetime_created",  # Renamed to "time"
     }
 
     value_mapping = {
@@ -202,4 +313,4 @@ if __name__ == "__main__":
         # "has_defense": {"yes": "true", "no": "false"},
     }
 
-    manager.process_records(key_mapping, value_mapping, new_prefix="labels")
+    manager.process_filter_records(new_prefix="labels")
