@@ -111,20 +111,25 @@ class SpatialQueryEngine:
         hrefs_str = ", ".join(f'"{href}"' for href in signed_hrefs)
 
         # SQL query to randomly fetch one transect with filters
+        # SQL query to fetch one random transect, ensuring filtering happens before sampling
         query = f"""
-        SELECT
-            transect_id,
-            lon,
-            lat,
-            bbox,
-            continent,
-            country,
-            ST_AsWKB(ST_Transform(ST_GeomFromWKB(geometry), 'EPSG:4326', 'EPSG:4326')) AS geometry
-        FROM read_parquet([{hrefs_str}])
-        WHERE
-            continent = 'EU'  -- Filter by continent
-            AND country != 'RU'  -- Exclude records from Russia
-        USING SAMPLE 1;
+        WITH filtered_transects AS (
+            SELECT
+                transect_id,
+                lon,
+                lat,
+                bbox,
+                continent,
+                country,
+                ST_AsWKB(ST_Transform(ST_GeomFromWKB(geometry), 'EPSG:4326', 'EPSG:4326')) AS geometry
+            FROM read_parquet([{hrefs_str}])
+            WHERE
+                continent = 'EU'  -- Filter by continent
+                AND country != 'RU'  -- Exclude records from Russia
+        )
+        SELECT *
+        FROM filtered_transects
+        USING SAMPLE 1 ROWS;
         """
 
         # Execute the query and fetch the result
