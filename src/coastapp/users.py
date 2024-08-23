@@ -7,6 +7,7 @@ import uuid
 import fsspec
 import panel as pn
 import param
+
 from coastapp.crud import CRUDManager
 
 logger = logging.getLogger(__name__)
@@ -112,7 +113,7 @@ class UserManager(CRUDManager):
                 "name": user_input,
                 "formatted_name": formatted_name,
                 "user_id": user_id,
-                "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
+                "datetime_created": datetime.datetime.now(datetime.UTC).isoformat(),
             }
             self.create_record(record)
             self.feedback_message.object = (

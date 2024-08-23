@@ -84,15 +84,20 @@ classification_manager = ClassificationManager(
 )
 
 feature_manager = FeatureManager(spatial_query_app=spatial_query_app)
+
 intro_pane = pn.pane.Markdown("""
-    The Coastal Typology Annotation Tool is designed to collect a crowd-sourced machine learning training dataset that can be used to classify the coast and improve our understanding of coastal erosion on extensive spatial scales. Use the point-draw tool (three dots with an arrow) on the drop-down menu to the right of the map to draw a point (red) and fetch its nearest transect (might take a few seconds). The classification focuses on identifying three key elements:
+    The Coastal Typology Annotation Tool is designed to collect a crowd-sourced dataset for training machine learning models that help classify coasts and improve our understanding of coastal erosion on large spatial scales. Although the focus is on European coastlines, users are welcome to contribute labels for other continents as well.
 
-    - **Shore Fabric**: The type of material composing the shore (e.g., sandy, rocky).
-    - **Coastal Type**: The geomorphological and human-influenced landscape behind the shore (e.g., dunes, cliffs, urbanized areas).
-    - **Defenses**: Whether or not a coastal defense system (e.g., seawalls, dykes) is present.
+    Use the point-draw tool (three dots with an arrow) from the drop-down menu to the right of the map to select a point and fetch its nearest transect. When classifying, base your annotations on the area of interest which is shown by the polygon.
 
-    Contributors may also suggest new classes if absolutely necessary, though the goal is to maintain a minimal and effective classification system.
+    The classification focuses on four key attributes:
+
+    - **Shore Type**: Describes the material composing the shore (e.g., sandy sediments, rocky formations, or muddy sediments).
+    - **Coastal Type**: Refers to the geomorphological features of the coast, which may be natural (e.g., cliffs, dunes) or human-influenced (e.g., engineered structures).
+    - **Built Environment**: Indicates whether the coastal area is dominated by human-made structures or remains largely natural.
+    - **Defenses**: Determines whether coastal defense structures (e.g., sea walls, breakwaters) are present to protect against erosion and flooding.
 """)
+
 # Combine additional features in one column
 additional_features_view = pn.Column(
     pn.pane.Markdown("## Additional Features"),

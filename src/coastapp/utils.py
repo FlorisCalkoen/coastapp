@@ -1,3 +1,7 @@
+import re
+import unicodedata
+from typing import Literal
+
 import fsspec
 import geopandas as gpd
 from shapely.geometry import LineString, Polygon, base, box
@@ -150,3 +154,57 @@ def buffer_geometries_in_utm(
         return geo_data
     else:
         return buffered_geoms
+
+
+def format_str_for_storage(
+    input_str: str | None, replace_with: Literal["_", "-"]
+) -> str:
+    """
+    Remove special characters from a string, handle accents, and replace spaces with the chosen character.
+
+    Args:
+        input_str (str): The input string to sanitize.
+        replace_with (Literal["_", "-"]): Character to replace spaces with ('_' or '-').
+
+    Returns:
+        str: Sanitized string with no special characters and spaces replaced by the specified character.
+    """
+    if input_str is None:
+        return ""  # Handle None input by returning an empty string
+
+    # Normalize the string to NFD (Normalization Form Decomposition) to break characters into base and accent parts
+    formatted_str = unicodedata.normalize("NFD", input_str)
+    # Remove accents by filtering out the combining diacritical marks
+    formatted_str = "".join(
+        char for char in formatted_str if unicodedata.category(char) != "Mn"
+    )
+    # Convert to lowercase
+    formatted_str = formatted_str.lower()
+    # Replace spaces with the specified character
+    formatted_str = re.sub(r"\s+", replace_with, formatted_str)
+    # Remove any remaining characters that are not alphanumeric or the replacement character
+    formatted_str = re.sub(rf"[^\w{replace_with}]", "", formatted_str)
+    return formatted_str
+
+
+def format_str_for_display(input_str: str | None) -> str:
+    """
+    Convert a snake_case or hyphenated string into a more readable format
+    with only the first letter of the sentence capitalized.
+
+    Args:
+        input_str (str): The input string in snake_case or hyphenated format.
+
+    Returns:
+        str: A readable string with spaces and only the first letter capitalized.
+    """
+    if input_str is None:
+        return ""  # Handle None input by returning an empty string
+
+    # Replace underscores or hyphens with spaces
+    formatted_str = input_str.replace("_", " ").replace("-", " ")
+
+    # Capitalize only the first letter of the entire string
+    formatted_str = formatted_str.capitalize()
+
+    return formatted_str

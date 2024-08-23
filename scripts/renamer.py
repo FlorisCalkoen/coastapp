@@ -24,7 +24,7 @@ class Renamer(CRUDManager):
     @property
     def get_prefix(self) -> str:
         """Returns the base prefix for the current implementation."""
-        return "labels"
+        return "labels2"
 
     def generate_filename(self, record: dict) -> str:
         """
@@ -33,8 +33,8 @@ class Renamer(CRUDManager):
         user = record["user"]
         transect_id = record["transect_id"]
         timestamp = record.get(
-            "time", datetime.datetime.now(datetime.UTC).isoformat()
-        )  # Handle "time" key
+            "datetime_created", datetime.datetime.now(datetime.UTC).isoformat()
+        )
 
         # Ensure the timestamp is a datetime object, if it's a string convert it
         if isinstance(timestamp, str):
@@ -174,7 +174,7 @@ class Renamer(CRUDManager):
         for record in filtered_records:
             try:
                 # Define the file name for the record
-                record_name = f"{record['user']}_{record['transect_id']}.json"
+                record_name = self.generate_filename(record)
 
                 # Ensure proper order in saving the fields
                 sort_order = [
@@ -298,19 +298,23 @@ if __name__ == "__main__":
         #         "Ice/tundra": "ice_or_tundra",
         #         "No sediment or shore platform": "no_sediment_or_shore_platform",
         #     },
-        #     "coastal_type": {
-        #         "Cliffed or steep coasts": "cliffed_or_steep_coasts",
-        #         "Dune coast": "dune_coast",
-        #         "Sandy beach plain": "sandy_beach_plain",
-        #         "Estuary inlet": "coastal_inlet",
-        #         "Tidal flat's, including marshes, mangroves and sabkha's.": "coastal_wetlands",
-        #         "Coastal plain without built-up areas": "coastal_sediment_plain",
-        #         "Coastal plain with built-up area": "coastal_sediment_plain",
-        #         "Coastal bedrock plain": "coastal_bedrock_plain",
-        #         "enh:Coastal bedrock plain with built-up area": "coastal_bedrock_plain",
-        #     },
+        "coastal_type": {
+            "cliffed_or_steep_coasts": "cliffed_or_steep",
+            "moderately_sloped_coasts": "moderately_sloped",
+            "coastal_bedrock_plain": "bedrock_plain",
+            "coastal_sediment_plain": "sediment_plain",
+            "dune_coast": "dune",
+            "coastal_wetlands": "wetland",
+            "coral_coast": "coral",
+            "coastal_inlet": "inlet",
+            "engineered_coastal_structures": "engineered_structures",
+        },
         # "is_built_environment": {True: "true", False: "false"},
         # "has_defense": {"yes": "true", "no": "false"},
     }
+
+    # manager.process_records(
+    #     key_mapping=key_mapping, value_mapping=value_mapping, new_prefix="labels"
+    # )
 
     manager.process_filter_records(new_prefix="labels")
