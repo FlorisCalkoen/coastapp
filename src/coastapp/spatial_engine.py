@@ -18,7 +18,6 @@ from shapely.wkb import loads
 
 from coastapp.utils import buffer_geometries_in_utm, create_offset_rectangle
 
-
 logger = logging.getLogger(__name__)
 
 dotenv.load_dotenv(override=True)
@@ -72,13 +71,13 @@ class SpatialQueryEngine:
         self, stac_url: str, collection_id: str
     ) -> gpd.GeoDataFrame:
         """Fetches and processes a STAC collection to create a GeoDataFrame of quadtiles."""
-        stac_client = pystac_client.Client.open(stac_url)
-        collection = stac_client.get_child(collection_id)
-        items = collection.get_all_items()
-        quadtiles = gpd.GeoDataFrame(
+        self.stac_client = pystac_client.Client.open(stac_url)
+        self.gcts_collection = self.stac_client.get_child(collection_id)
+        items = self.gcts_collection.get_all_items()
+        self.quadtiles = gpd.GeoDataFrame(
             [self.extract_storage_partition(item) for item in items], crs="EPSG:4326"
         )
-        return quadtiles
+        return self.quadtiles
 
     @staticmethod
     def extract_storage_partition(stac_item) -> dict:
@@ -88,6 +87,53 @@ class SpatialQueryEngine:
             "href": stac_item.assets["data"].href,
             "proj:epsg": stac_item.properties["proj:epsg"],
         }
+
+    def get_random_transect(self):
+        """
+        Query one random transect from the parquet files with optional filtering by continent and country.
+        """
+        # Choose the href for remote parquet partition
+        hrefs = self.quadtiles.href.unique().tolist()
+
+        # Sign each HREF with the SAS token if the storage backend is Azure
+        if self.storage_backend == "azure":
+            signed_hrefs = []
+            for href in hrefs:
+                signed_href = href.replace(
+                    "az://", "https://coclico.blob.core.windows.net/"
+                )
+                signed_href = signed_href + f"?{sas_token}"
+                signed_hrefs.append(signed_href)
+        else:
+            signed_hrefs = hrefs
+
+        # Join the hrefs into a single string
+        hrefs_str = ", ".join(f'"{href}"' for href in signed_hrefs)
+
+        # WHERE
+        #     continent = 'EU'  -- Filter by continent
+        #     AND country != 'RU'  -- Exclude records from Russia
+
+        # SQL query to randomly fetch one transect with filters
+        query = f"""
+        SELECT
+            transect_id,
+            lon,
+            lat,
+            bbox,
+            ST_AsWKB(ST_Transform(ST_GeomFromWKB(geometry), 'EPSG:4326', 'EPSG:4326')) AS geometry
+        FROM read_parquet([{hrefs_str}])
+        USING SAMPLE 1;
+        """
+
+        # Execute the query and fetch the result
+        transect = self.con.execute(query).fetchdf()
+
+        # Convert the geometry from WKB to GeoDataFrame format
+        transect["geometry"] = transect.geometry.map(lambda b: loads(bytes(b)))
+
+        # Return as GeoDataFrame with EPSG:4326 CRS
+        return gpd.GeoDataFrame(transect, crs="EPSG:4326")
 
     def get_nearest_geometry(self, x, y):
         point = Point(x, y)
@@ -183,6 +229,11 @@ class SpatialQueryApp(param.Parameterized):
         )
         self.toggle_button.param.watch(self.toggle_labelled_transects, "value")
 
+        self.get_random_transect_button = pn.widgets.Button(
+            name="Get random transect (can be bit slow...)", button_type="default"
+        )
+        self.get_random_transect_button.on_click(self._get_random_transect)
+
     def initialize_view(self):
         """Initializes the HoloViews pane using the current transect."""
         return pn.pane.HoloViews(
@@ -227,6 +278,11 @@ class SpatialQueryApp(param.Parameterized):
         # Update the view only if explicitly allowed and after initialization
         if update and self.view_initialized:
             self.update_view()
+
+    def _get_random_transect(self, event):
+        """Handle the button click to get a random transect."""
+        transect = self.spatial_engine.get_random_transect()
+        self.set_transect(transect, query_triggered=False)
 
     def toggle_labelled_transects(self, event):
         """Handle the toggle button to show or hide labelled transects."""
@@ -282,3 +338,7 @@ class SpatialQueryApp(param.Parameterized):
     def view_labelled_transects_button(self):
         """Returns the toggle button to view labelled transects."""
         return self.toggle_button
+
+    def view_get_random_transect_button(self):
+        """Returns the toggle button to view labelled transects."""
+        return self.get_random_transect_button

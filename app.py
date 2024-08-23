@@ -101,8 +101,9 @@ intro_pane = pn.pane.Markdown("""
 # Combine additional features in one column
 additional_features_view = pn.Column(
     pn.pane.Markdown("## Additional Features"),
-    classification_manager.iterate_labelled_transects_view(),
     spatial_query_app.view_labelled_transects_button(),
+    classification_manager.iterate_labelled_transects_view(),
+    spatial_query_app.view_get_random_transect_button(),
     feature_manager.view(),
     name="Additional Features",
 )

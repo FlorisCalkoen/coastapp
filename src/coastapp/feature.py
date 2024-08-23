@@ -56,9 +56,6 @@ class FeatureManager:
         if selected_geometry["lon"] and selected_geometry["lat"]:
             lat_lon_str = f"{selected_geometry['lat']}, {selected_geometry['lon']}"
             pyperclip.copy(lat_lon_str)  # Copies to clipboard
-            pn.state.notifications.success(f"Copied: {lat_lon_str}")
-        else:
-            pn.state.notifications.error("No location data available to copy.")
 
     def copy_transect_id_to_clipboard(self, event):
         """
@@ -68,9 +65,6 @@ class FeatureManager:
         transect_id = selected_geometry.get("transect_id")
         if transect_id:
             pyperclip.copy(transect_id)  # Copies to clipboard
-            pn.state.notifications.success(f"Copied Transect ID: {transect_id}")
-        else:
-            pn.state.notifications.error("No Transect ID available to copy.")
 
     def view(self):
         """
