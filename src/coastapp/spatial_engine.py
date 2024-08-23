@@ -110,10 +110,6 @@ class SpatialQueryEngine:
         # Join the hrefs into a single string
         hrefs_str = ", ".join(f'"{href}"' for href in signed_hrefs)
 
-        # WHERE
-        #     continent = 'EU'  -- Filter by continent
-        #     AND country != 'RU'  -- Exclude records from Russia
-
         # SQL query to randomly fetch one transect with filters
         query = f"""
         SELECT
@@ -121,8 +117,13 @@ class SpatialQueryEngine:
             lon,
             lat,
             bbox,
+            continent,
+            country,
             ST_AsWKB(ST_Transform(ST_GeomFromWKB(geometry), 'EPSG:4326', 'EPSG:4326')) AS geometry
         FROM read_parquet([{hrefs_str}])
+        WHERE
+            continent = 'EU'  -- Filter by continent
+            AND country != 'RU'  -- Exclude records from Russia
         USING SAMPLE 1;
         """
 
@@ -230,7 +231,7 @@ class SpatialQueryApp(param.Parameterized):
         self.toggle_button.param.watch(self.toggle_labelled_transects, "value")
 
         self.get_random_transect_button = pn.widgets.Button(
-            name="Get random transect (can be bit slow...)", button_type="default"
+            name="Get random transect (slow)", button_type="default"
         )
         self.get_random_transect_button.on_click(self._get_random_transect)
 
