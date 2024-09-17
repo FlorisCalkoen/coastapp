@@ -184,8 +184,13 @@ class ClassificationManager(CRUDManager):
         # Determine time values
         current_datetime = datetime.datetime.now(datetime.UTC).isoformat()
 
-        # Set time_created if it doesn't exist, otherwise update time_updated
-        datetime_created = self.record.get("datetime_created", current_datetime)
+        # NOTE: you cannot use self.record.get("datetime_created", current_datetime)
+        # because then you will find the default value, which is an empty string. See
+        # default schema. So, if datetime_created is an empty string, set it to current_datetime
+        datetime_created = self.record.get("datetime_created")
+        if not datetime_created:
+            datetime_created = current_datetime
+
         datetime_updated = current_datetime
 
         universal_unique_id = uuid.uuid4().hex[:12]
