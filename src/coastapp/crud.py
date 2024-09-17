@@ -1,4 +1,3 @@
-import datetime
 import json
 import logging
 from abc import ABC, abstractmethod
@@ -62,8 +61,6 @@ class CRUDManager(ABC):
 
     def create_record(self, record: dict):
         """Creates a new record and saves it."""
-        datetime_created = datetime.datetime.now(datetime.UTC).isoformat()
-        record["datetime_created"] = datetime_created
         self.save_record(record)
 
     def read_record(self, record_name: str) -> dict:
