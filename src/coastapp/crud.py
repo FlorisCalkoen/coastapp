@@ -49,7 +49,7 @@ class CRUDManager(ABC):
         """Constructs the signed HTTPS URL with the SAS token."""
         return f"{self.base_url}/{record_name}?{self.storage_options['sas_token']}"
 
-    def save_record(self, record: dict):
+    def create_record(self, record: dict):
         """Saves a record to the Azure storage backend using the az:// protocol."""
         record_name = self.generate_filename(record)
         full_path = self._get_storage_path(record_name)
@@ -59,9 +59,11 @@ class CRUDManager(ABC):
             f.write(record_json)
         logger.info(f"Saved record: {full_path}")
 
-    def create_record(self, record: dict):
-        """Creates a new record and saves it."""
-        self.save_record(record)
+    # def create_record(self, record: dict):
+    #     """Creates a new record and saves it."""
+    #     datetime_created = datetime.datetime.now(datetime.UTC).isoformat()
+    #     record["datetime_created"] = datetime_created
+    #     self.save_record(record)
 
     def read_record(self, record_name: str) -> dict:
         """Reads a record from the Azure storage backend using HTTPS."""
@@ -75,7 +77,7 @@ class CRUDManager(ABC):
         """Updates an existing record in the Azure storage backend using the az:// protocol."""
         record = self.read_record(record_name)
         record.update(updated_data)
-        self.save_record(record)
+        self.create_record(record)
 
     def delete_record(self, record_name: str):
         """Deletes a record from the Azure storage backend using the az:// protocol."""
