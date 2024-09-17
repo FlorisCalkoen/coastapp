@@ -1,5 +1,6 @@
 import datetime
 import logging
+import uuid
 
 import pandas as pd
 import panel as pn
@@ -11,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 class ClassificationManager(CRUDManager):
     DEFAULT_RECORD_SCHEMA = {
+        "uuid": "",
         "user": "",
         "transect_id": "",
         "lon": "",
@@ -186,8 +188,10 @@ class ClassificationManager(CRUDManager):
         datetime_created = self.record.get("datetime_created", current_datetime)
         datetime_updated = current_datetime
 
+        universal_unique_id = uuid.uuid4().hex[:12]
         # Collect data locally before updating self.record
         record = {
+            "uuid": universal_unique_id,
             "user": user,
             "transect_id": transect_id,
             "lon": lon,

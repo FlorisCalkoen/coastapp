@@ -216,8 +216,14 @@ class LabelledTransectManager(CRUDManager):
                 "datetime_created"
             ].isoformat()  # Format timestamp to ISO string
 
+        if isinstance(record["datetime_updated"], pd.Timestamp):
+            record["datetime_updated"] = record[
+                "datetime_updated"
+            ].isoformat()  # Format timestamp to ISO string
+
         # Ensure all required fields are present, fill with None if missing
         required_fields = [
+            "uuid",
             "user",
             "transect_id",
             "lon",

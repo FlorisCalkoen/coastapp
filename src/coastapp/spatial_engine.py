@@ -240,6 +240,12 @@ class SpatialQueryApp(param.Parameterized):
         )
         self.get_random_transect_button.on_click(self._get_random_transect)
 
+        # Add a radio button group for basemap selection
+        self.basemap_button = pn.widgets.RadioButtonGroup(
+            name="Basemap", options=["Esri Imagery", "OSM"], value="Esri Imagery"
+        )
+        self.basemap_button.param.watch(self.update_basemap, "value")
+
     def initialize_view(self):
         """Initializes the HoloViews pane using the current transect."""
         return pn.pane.HoloViews(
@@ -247,6 +253,16 @@ class SpatialQueryApp(param.Parameterized):
                 self.plot_transect(self.current_transect) * self.tiles * self.point_draw
             ).opts(active_tools=["wheel_zoom"])
         )
+
+    def update_basemap(self, event):
+        """Update the tiles based on the selected basemap."""
+        if event.new == "Esri Imagery":
+            self.tiles = gvts.EsriImagery()
+        elif event.new == "OSM":
+            self.tiles = gvts.OSM()
+
+        # Update the view to reflect the new tiles
+        self.update_view()
 
     def plot_transect(self, transect):
         """Plot the given transect with polygons and paths."""
@@ -365,3 +381,169 @@ class SpatialQueryApp(param.Parameterized):
     def view_get_random_transect_button(self):
         """Returns the toggle button to view labelled transects."""
         return self.get_random_transect_button
+
+    def view_get_basemap_button(self):
+        """Returns the toggle button to view labelled transects."""
+        return self.basemap_button
+
+
+# class SpatialQueryApp(param.Parameterized):
+#     current_transect = param.ClassSelector(
+#         class_=gpd.GeoDataFrame, doc="Current transect as a GeoDataFrame"
+#     )
+#     show_labelled_transects = param.Boolean(
+#         default=False, doc="Show/Hide Labelled Transects"
+#     )
+
+#     def __init__(self, spatial_engine, labelled_transect_manager, default_geometry):
+#         super().__init__()
+#         self.spatial_engine = spatial_engine
+#         self.labelled_transect_manager = labelled_transect_manager
+#         self.view_initialized = False
+
+#         # Initialize map tiles and point drawing tools
+#         self.tiles = gvts.EsriImagery()  # Default tiles
+#         self.point_draw = gv.Points([]).opts(
+#             size=10, color="red", tools=["hover"], responsive=True
+#         )
+
+#         # Set the default transect without triggering a view update
+#         self.default_geometry = default_geometry
+#         self.set_transect(self.default_geometry, query_triggered=False, update=False)
+
+#         # Initialize the UI components (view initialized first)
+#         self.transect_view = self.initialize_view()
+
+#         # Mark the view as initialized
+#         self.view_initialized = True
+
+#         # Setup the UI after the transect and view are initialized
+#         self.setup_ui()
+
+#     def setup_ui(self):
+#         """Set up the dynamic visualization and point drawing tools."""
+#         self.point_draw_stream = streams.PointDraw(
+#             source=self.point_draw, num_objects=1
+#         )
+#         self.point_draw_stream.add_subscriber(self.on_point_draw)
+
+#         # Add the toggle button to show/hide labelled transects
+#         self.toggle_button = pn.widgets.Toggle(
+#             name="Show Labelled Transects", value=False, button_type="default"
+#         )
+#         self.toggle_button.param.watch(self.toggle_labelled_transects, "value")
+
+#         self.get_random_transect_button = pn.widgets.Button(
+#             name="Get random transect (slow)", button_type="default"
+#         )
+#         self.get_random_transect_button.on_click(self._get_random_transect)
+
+#         # Add a radio button group for basemap selection
+#         self.basemap_button = pn.widgets.RadioButtonGroup(
+#             name="Basemap", options=["Esri Imagery", "OSM"], value="Esri Imagery"
+#         )
+#         self.basemap_button.param.watch(self.update_basemap, "value")
+
+#     def initialize_view(self):
+#         """Initializes the HoloViews pane using the current transect."""
+#         return pn.pane.HoloViews(
+#             (
+#                 self.plot_transect(self.current_transect) * self.tiles * self.point_draw
+#             ).opts(active_tools=["wheel_zoom"])
+#         )
+
+#     def update_basemap(self, event):
+#         """Update the tiles based on the selected basemap."""
+#         if event.new == "Esri Imagery":
+#             self.tiles = gvts.EsriImagery()
+#         elif event.new == "OSM":
+#             self.tiles = gvts.OSM()
+
+#         # Update the view to reflect the new tiles
+#         self.update_view()
+
+#     def plot_transect(self, transect):
+#         """Plot the given transect with polygons and paths."""
+#         coords = list(transect.geometry.item().coords)
+#         landward_point, seaward_point = coords[0], coords[-1]
+#         polygon = gpd.GeoDataFrame(
+#             geometry=[
+#                 create_offset_rectangle(
+#                     transect.to_crs(transect.estimate_utm_crs()).geometry.item(), 200
+#                 )
+#             ],
+#             crs=transect.estimate_utm_crs(),
+#         )
+#         polygon_plot = gv.Polygons(
+#             polygon[["geometry"]].to_crs(4326), label="Area of Interest"
+#         ).opts(fill_alpha=0.1, fill_color="green", line_width=2)
+#         transect_plot = gv.Path(
+#             transect[["geometry"]].to_crs(4326), label="Transect"
+#         ).opts(color="red", line_width=1, tools=["hover"])
+#         landward_point_plot = gv.Points([landward_point], label="Landward").opts(
+#             color="green", line_color="red", size=10
+#         )
+#         seaward_point_plot = gv.Points([seaward_point], label="Seaward").opts(
+#             color="blue", line_color="red", size=10
+#         )
+
+#         return (
+#             polygon_plot * transect_plot * landward_point_plot * seaward_point_plot
+#         ).opts(legend_position="bottom_right")
+
+#     def set_transect(self, transect_data, query_triggered=False, update=True):
+#         """Sets the current transect and optionally updates the view."""
+#         if isinstance(transect_data, dict):
+#             self.current_transect = self.prepare_transect(transect_data)
+#         else:
+#             self.current_transect = transect_data
+
+#         # Update the view only if explicitly allowed and after initialization
+#         if update and self.view_initialized:
+#             self.update_view()
+
+#     def update_view(self):
+#         """Update the visualization based on the current transect."""
+#         new_view = self.plot_transect(self.current_transect)
+
+#         # If show_labelled_transects is True, include labelled transects in the view
+#         if self.show_labelled_transects:
+#             labelled_transects_plot = (
+#                 self.labelled_transect_manager.plot_labelled_transects()
+#             )
+#             new_view = new_view * labelled_transects_plot
+
+#         self.transect_view.object = (new_view * self.tiles * self.point_draw).opts(
+#             legend_position="bottom_right", active_tools=["wheel_zoom"]
+#         )
+
+#     def on_point_draw(self, data):
+#         """Handle the point draw event and query the nearest geometry based on drawn points."""
+#         if data:
+#             x, y = data["Longitude"][0], data["Latitude"][0]
+#             self.query_and_set_transect(x, y)
+
+#     def query_and_set_transect(self, x, y):
+#         """Queries the nearest transect and updates the current transect."""
+#         try:
+#             geometry = self.spatial_engine.get_nearest_geometry(x, y)
+#             self.set_transect(geometry, query_triggered=True)
+#         except Exception:
+#             logger.exception("Failed to query geometry. Reverting to default transect.")
+#             self.set_transect(self.default_geometry, query_triggered=False)
+
+#     def main_widget(self):
+#         """Returns the pane representing the current transect view and toggle button."""
+#         return pn.Column(self.transect_view, self.basemap_button)
+
+#     def view_labelled_transects_button(self):
+#         """Returns the toggle button to view labelled transects."""
+#         return self.toggle_button
+
+#     def view_get_random_transect_button(self):
+#         """Returns the toggle button to view labelled transects."""
+#         return self.get_random_transect_button
+
+#     def view_get_basemap_button(self):
+#         """Returns the toggle button to view labelled transects."""
+#         return self.basemap_button

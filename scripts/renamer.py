@@ -2,6 +2,7 @@ import datetime
 import json
 import logging
 import os
+import uuid
 from copy import deepcopy
 
 import dotenv
@@ -24,7 +25,7 @@ class Renamer(CRUDManager):
     @property
     def get_prefix(self) -> str:
         """Returns the base prefix for the current implementation."""
-        return "labels2"
+        return "labels"
 
     def generate_filename(self, record: dict) -> str:
         """
@@ -264,6 +265,81 @@ class Renamer(CRUDManager):
                     f"Failed to process record {record_name}: {e}", exc_info=True
                 )
 
+    def process_add_uuid(self, new_prefix: str | None = None):
+        """
+        Reads all records from cloud storage, filters the latest record per user and transect_id,
+        and saves the filtered records back to cloud storage.
+        """
+        # File storage and prefix setup
+        prefix_to_use = new_prefix if new_prefix else self.get_prefix
+        fs = fsspec.filesystem("az", **self.storage_options)
+
+        # Load all records from cloud storage
+        labelled_files = fs.glob(f"{self.base_uri}/*.json")
+        all_records = []
+
+        for file in labelled_files:
+            record_name = file.split("/")[-1]
+            try:
+                # Read the original record and append it to the list
+                record = self.read_record(record_name)
+                all_records.append(record)
+            except Exception as e:
+                logger.error(f"Failed to read record {record_name}: {e}", exc_info=True)
+
+        # If no records found, return early
+        if not all_records:
+            logger.info("No records found in cloud storage.")
+            return
+
+        # Filter records to get the latest per user and transect_id
+        filtered_records = self.filter_records(all_records)
+
+        # ve the filtered records back to cloud storage
+        for record in filtered_records:
+            try:
+                record["uuid"] = uuid.uuid4().hex[:12]
+                # Define the file name for the record
+                record_name = self.generate_filename(record)
+
+                # Ensure proper order in saving the fields
+                sort_order = [
+                    "uuid",
+                    "user",
+                    "transect_id",
+                    "lon",
+                    "lat",
+                    "geometry",
+                    "datetime_created",
+                    "datetime_updated",
+                    "shore_type",
+                    "coastal_type",
+                    "landform_type",
+                    "is_built_environment",
+                    "has_defense",
+                    "is_challenging",
+                    "comment",
+                    "link",
+                ]
+
+                # Ensure the record is saved in the correct order
+                ordered_record = {k: record.get(k) for k in sort_order if k in record}
+
+                # Cast datetime objects to isoformat
+                ordered_record["datetime_created"] = ordered_record[
+                    "datetime_created"
+                ].isoformat()
+                ordered_record["datetime_updated"] = ordered_record[
+                    "datetime_updated"
+                ].isoformat()
+
+                # Save the filtered record with the correct prefix
+                self.save_record_with_prefix(ordered_record, record_name, prefix_to_use)
+                logger.info(f"Record {record_name} saved successfully.")
+
+            except Exception as e:
+                logger.error(f"Failed to save record {record_name}: {e}", exc_info=True)
+
     def save_record_with_prefix(self, record: dict, record_name: str, prefix: str):
         """
         Saves a record under a specified prefix.
@@ -317,4 +393,4 @@ if __name__ == "__main__":
     #     key_mapping=key_mapping, value_mapping=value_mapping, new_prefix="labels"
     # )
 
-    manager.process_filter_records(new_prefix="labels")
+    manager.process_add_uuid(new_prefix="labels")
