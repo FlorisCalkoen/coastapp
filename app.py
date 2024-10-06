@@ -1,6 +1,7 @@
 import logging
 import os
 
+import duckdb
 import holoviews as hv
 import panel as pn
 from dotenv import load_dotenv
@@ -19,6 +20,7 @@ storage_options = {"account_name": "coclico", "sas_token": sas_token}
 
 # Logger setup
 logger = logging.getLogger(__name__)
+logger.info(f"DuckDB version: {duckdb.__version__}")
 
 pn.extension()
 hv.extension("bokeh")

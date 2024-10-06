@@ -163,7 +163,7 @@ class SpatialQueryEngine:
             bbox,
             lon,
             lat,
-            ST_AsWKB(ST_Transform(ST_GeomFromWKB(geometry), 'EPSG:4326', 'EPSG:4326')) AS geometry,  -- Retrieve transect geometry as WKB
+            ST_AsWKB(ST_Transform(geometry, 'EPSG:4326', 'EPSG:4326')) AS geometry,  -- Retrieve transect geometry as WKB
             ST_Distance(
                 ST_Transform(ST_Point(lon, lat), 'EPSG:4326', 'EPSG:3857'),  -- Transect origin in UTM
                 ST_Transform(ST_GeomFromText('{point_gdf_wkt}'), 'EPSG:4326', 'EPSG:3857')  -- Input point in UTM
