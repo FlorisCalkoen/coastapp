@@ -165,8 +165,8 @@ class SpatialQueryEngine:
             lat,
             ST_AsWKB(ST_Transform(geometry, 'EPSG:4326', 'EPSG:4326')) AS geometry,  -- Retrieve transect geometry as WKB
             ST_Distance(
-                ST_Transform(ST_Point(lon, lat), 'EPSG:4326', 'EPSG:3857'),  -- Transect origin in UTM
-                ST_Transform(ST_GeomFromText('{point_gdf_wkt}'), 'EPSG:4326', 'EPSG:3857')  -- Input point in UTM
+                ST_Transform(ST_Point(lon, lat), 'EPSG:4326', 'EPSG:3857', always_xy := true),  -- Transect origin in UTM
+                ST_Transform(ST_GeomFromText('{point_gdf_wkt}'), 'EPSG:4326', 'EPSG:3857', always_xy := true)  -- Input point in UTM
             ) AS distance
         FROM
             read_parquet('{href}')
