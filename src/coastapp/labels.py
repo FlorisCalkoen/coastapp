@@ -4,6 +4,7 @@ import fsspec
 import geopandas as gpd
 import hvplot.pandas  # noqa
 import pandas as pd
+import panel as pn
 from shapely import wkt
 
 from coastapp.crud import CRUDManager
@@ -19,6 +20,7 @@ class LabelledTransectManager(CRUDManager):
         self.user_df = None  # DataFrame to hold records for the current user
         self.current_index = None  # Tracks the current index for navigation
         self.user_manager = user_manager
+        self.show_label_distribution = False
 
         # Set up a watcher on the selected user parameter to trigger updates
         self.user_manager.selected_user.param.watch(
@@ -269,3 +271,43 @@ class LabelledTransectManager(CRUDManager):
             line_color="green",
         )
         return plot
+
+    def plot_label_distribution(self):
+        df = self.load()
+
+        label_selector = pn.widgets.Select(
+            options=[
+                "shore_type",
+                "coastal_type",
+                "is_built_environment",
+                "has_defense",
+            ],
+            value="coastal_type",  # Default selection
+        )
+
+        def plot_label_distribution_(variable):
+            # Check if the variable exists in the dataset
+            if variable not in df.columns:
+                return pn.pane.Markdown(
+                    f"**Error**: `{variable}` is not a valid column in the dataset",
+                )
+
+            counts = df[variable].dropna().value_counts()
+
+            if counts.empty:
+                return pn.pane.Markdown(
+                    f"**No data available** for `{variable}`",
+                )
+
+            # Create the plot
+            return counts.hvplot.bar(
+                title=f"Distribution of {variable}",
+                xlabel=variable,
+                ylabel="Count",
+                rot=45,
+            )
+
+        # Create a Panel layout with the widget and plot
+        return pn.Column(
+            label_selector, pn.bind(plot_label_distribution_, label_selector)
+        )

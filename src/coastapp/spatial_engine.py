@@ -165,8 +165,8 @@ class SpatialQueryEngine:
             lat,
             ST_AsWKB(ST_Transform(geometry, 'EPSG:4326', 'EPSG:4326')) AS geometry,  -- Retrieve transect geometry as WKB
             ST_Distance(
-                ST_Transform(ST_Point(lon, lat), 'EPSG:4326', 'EPSG:3857'),  -- Transect origin in UTM
-                ST_Transform(ST_GeomFromText('{point_gdf_wkt}'), 'EPSG:4326', 'EPSG:3857')  -- Input point in UTM
+                ST_Transform(ST_Point(lon, lat), 'EPSG:4326', 'EPSG:3857', always_xy := true),  -- Transect origin in UTM
+                ST_Transform(ST_GeomFromText('{point_gdf_wkt}'), 'EPSG:4326', 'EPSG:3857', always_xy := true)  -- Input point in UTM
             ) AS distance
         FROM
             read_parquet('{href}')
@@ -195,6 +195,10 @@ class SpatialQueryApp(param.Parameterized):
     )
     show_labelled_transects = param.Boolean(
         default=False, doc="Show/Hide Labelled Transects"
+    )
+
+    show_label_distribution = param.Boolean(
+        default=False, doc="Show/Hide Label Distribution"
     )
 
     def __init__(self, spatial_engine, labelled_transect_manager, default_geometry):
@@ -230,10 +234,20 @@ class SpatialQueryApp(param.Parameterized):
         self.point_draw_stream.add_subscriber(self.on_point_draw)
 
         # Add the toggle button to show/hide labelled transects
-        self.toggle_button = pn.widgets.Toggle(
+        self.toggle_button_labelled_transects = pn.widgets.Toggle(
             name="Show Labelled Transects", value=False, button_type="default"
         )
-        self.toggle_button.param.watch(self.toggle_labelled_transects, "value")
+        self.toggle_button_labelled_transects.param.watch(
+            self.toggle_labelled_transects, "value"
+        )
+
+        #
+        self.toggle_button_label_distribution = pn.widgets.Toggle(
+            name="Show Label Distribution", value=False, button_type="default"
+        )
+        self.toggle_button_label_distribution.param.watch(
+            self.toggle_label_distribution, "value"
+        )
 
         self.get_random_transect_button = pn.widgets.Button(
             name="Get random transect (slow)", button_type="default"
@@ -328,26 +342,47 @@ class SpatialQueryApp(param.Parameterized):
         self.show_labelled_transects = event.new
 
         if self.show_labelled_transects:
-            self.toggle_button.button_type = "success"  # Set to green
+            self.toggle_button_labelled_transects.button_type = (
+                "success"  # Set to green
+            )
             self.labelled_transect_manager.load()
         else:
-            self.toggle_button.button_type = "default"
+            self.toggle_button_labelled_transects.button_type = "default"
+        self.update_view()
+
+    def toggle_label_distribution(self, event):
+        """Handle the toggle button to show or hide labelled transects."""
+        self.show_label_distribution = event.new
+
+        if self.show_label_distribution:
+            self.toggle_button_label_distribution.button_type = (
+                "success"  # Set to green
+            )
+            self.labelled_transect_manager.load()
+        else:
+            self.toggle_button_label_distribution.button_type = "default"
         self.update_view()
 
     def update_view(self):
         """Update the visualization based on the current transect."""
         new_view = self.plot_transect(self.current_transect)
 
-        # If show_labelled_transects is True, include labelled transects in the view
-        if self.show_labelled_transects:
-            labelled_transects_plot = (
-                self.labelled_transect_manager.plot_labelled_transects()
+        if self.show_label_distribution:
+            self.transect_view.object = (
+                self.labelled_transect_manager.plot_label_distribution()
             )
-            new_view = new_view * labelled_transects_plot
 
-        self.transect_view.object = (new_view * self.tiles * self.point_draw).opts(
-            legend_position="bottom_right", active_tools=["wheel_zoom"]
-        )
+        if not self.show_label_distribution:
+            # If show_labelled_transects is True, include labelled transects in the view
+            if self.show_labelled_transects:
+                labelled_transects_plot = (
+                    self.labelled_transect_manager.plot_labelled_transects()
+                )
+                new_view = new_view * labelled_transects_plot
+
+            self.transect_view.object = (new_view * self.tiles * self.point_draw).opts(
+                legend_position="bottom_right", active_tools=["wheel_zoom"]
+            )
 
     def on_point_draw(self, data):
         """Handle the point draw event and query the nearest geometry based on drawn points."""
@@ -376,7 +411,11 @@ class SpatialQueryApp(param.Parameterized):
 
     def view_labelled_transects_button(self):
         """Returns the toggle button to view labelled transects."""
-        return self.toggle_button
+        return self.toggle_button_labelled_transects
+
+    def view_label_distribution_button(self):
+        """Returns the toggle button to view labelled transects."""
+        return self.toggle_button_label_distribution
 
     def view_get_random_transect_button(self):
         """Returns the toggle button to view labelled transects."""
