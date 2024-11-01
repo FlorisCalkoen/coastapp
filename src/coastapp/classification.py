@@ -72,11 +72,16 @@ class ClassificationManager(CRUDManager):
             name="Next Transect", button_type="default"
         )
 
+        self.uuid_text_input = pn.widgets.TextInput(
+            name="Load sample by UUID", placeholder="Enter a UUID here..."
+        )
+
         # Setup callbacks
         self.save_button.on_click(self.save_classification)
         self.is_challenging_button.param.watch(self.toggle_is_challenging, "value")
         self.previous_button.on_click(self.load_previous_transect)
         self.next_button.on_click(self.load_next_transect)
+        self.uuid_text_input.param.watch(self._load_record_by_uuid, "value")
 
         self.setup_schema_callbacks()
 
@@ -135,6 +140,23 @@ class ClassificationManager(CRUDManager):
     def iterate_labelled_transects_view(self):
         """Return a Row containing the Previous and Next transect buttons."""
         return pn.Row(self.previous_button, self.next_button)
+
+    def uuid_text_input_view(self):
+        """Return an AutocompleteInput widget for UUID entry."""
+        return pn.Row(self.uuid_text_input)
+
+    def _load_record_by_uuid(self, event):
+        """Callback to load record by UUID if it exists."""
+        input_uuid = event.new
+        record = self.spatial_query_app.labelled_transect_manager.fetch_record_by_uuid(
+            input_uuid
+        )
+
+        if record:
+            self.load_transect_data_into_widgets(record)
+        else:
+            # Display message or reset widget to indicate record was not found
+            self.uuid_text_input.value = "WARNING: Please enter a valid UUID."
 
     @property
     def get_prefix(self) -> str:

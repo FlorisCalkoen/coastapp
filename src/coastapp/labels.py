@@ -207,6 +207,20 @@ class LabelledTransectManager(CRUDManager):
         previous_record = self.user_df.iloc[self.current_index]
         return self.format_record(previous_record.to_dict())
 
+    def fetch_record_by_uuid(self, uuid):
+        """Fetches record by UUID, loading data if not already loaded."""
+        if self.df is None or self.df.empty:
+            # Load data if it hasn't been loaded yet
+            self.load()
+
+        # Search for UUID in the loaded data
+        matching_records = self.df[self.df["uuid"] == uuid]
+
+        if not matching_records.empty:
+            return self.format_record(matching_records.iloc[0].to_dict())
+
+        return None  # No record found for this UUID
+
     def format_record(self, record):
         """Format the record to match the classification schema."""
         record["geometry"] = record["geometry"].wkt  # Convert geometry to WKT format

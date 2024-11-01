@@ -105,6 +105,7 @@ additional_features_view = pn.Column(
     pn.pane.Markdown("## Additional Features"),
     spatial_query_app.view_labelled_transects_button(),
     classification_manager.iterate_labelled_transects_view(),
+    classification_manager.uuid_text_input_view(),
     spatial_query_app.view_get_random_transect_button(),
     spatial_query_app.view_get_basemap_button(),
     feature_manager.view(),
