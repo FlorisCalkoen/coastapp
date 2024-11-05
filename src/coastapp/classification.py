@@ -28,6 +28,8 @@ class ClassificationManager(CRUDManager):
         "is_challenging": False,
         "comment": "",
         "link": "",
+        "confidence": "medium",
+        "is_validated": False,
     }
 
     def __init__(
@@ -51,13 +53,15 @@ class ClassificationManager(CRUDManager):
         self.save_button = pn.widgets.Button(
             name="Save Classification", button_type="success", disabled=True
         )
+        self.is_validated_button = pn.widgets.Toggle(
+            name="Validated in second assessment", button_type="default", value=False
+        )
+        self.confidence_slider = pn.widgets.DiscreteSlider(
+            options=["low", "medium", "high"], name="Confidence", value="medium"
+        )
         self.is_challenging_button = pn.widgets.Toggle(
             name="Flag as Challenging", button_type="default", value=False
         )
-        self.load_record_button = pn.widgets.Toggle(
-            name="Load record", button_type="default", value=False
-        )
-
         self.comment_input = pn.widgets.TextAreaInput(
             name="Comment", placeholder="[Optional] Enter your comments here..."
         )
@@ -79,9 +83,14 @@ class ClassificationManager(CRUDManager):
             name="Load sample by UUID", placeholder="Enter a UUID here..."
         )
 
+        self.load_record_button = pn.widgets.Toggle(
+            name="Load record", button_type="default", value=False
+        )
+
         # Setup callbacks
         self.save_button.on_click(self.save_classification)
         self.is_challenging_button.param.watch(self.toggle_is_challenging, "value")
+        self.is_validated_button.param.watch(self.toggle_is_validated, "value")
         self.load_record_button.param.watch(self.toggle_load_record, "value")
         self.previous_button.on_click(self.load_previous_transect)
         self.next_button.on_click(self.load_next_transect)
@@ -118,6 +127,8 @@ class ClassificationManager(CRUDManager):
         self.classification_schema_manager.attribute_dropdowns[
             "has_defense"
         ].value = record.get("has_defense")
+        self.confidence_slider.value = record.get("confidence", "medium")
+        self.is_validated_button.value = record.get("is_validated", False)
         self.comment_input.value = record.get("comment", "")
         self.link_input.value = record.get("link", "")
         self.is_challenging_button.value = record.get("is_challenging", False)
@@ -238,6 +249,8 @@ class ClassificationManager(CRUDManager):
             "is_challenging": self.is_challenging,
             "comment": self.comment_input.value,
             "link": self.link_input.value,
+            "confidence": self.confidence_slider.value,
+            "is_validated": self.is_validated,
         }
 
         # Update self.record only after all data is collected
@@ -286,6 +299,11 @@ class ClassificationManager(CRUDManager):
         self.is_challenging_button.value = False
         self.is_challenging_button.button_type = "default"
         self.is_challenging = False
+
+        # Reset the 'is_validated' button
+        self.is_validated_button.value = False
+        self.is_validated_button.button_type = "default"
+        self.is_validated = False
 
         self.comment_input.value = ""
         self.link_input.value = ""
@@ -336,6 +354,13 @@ class ClassificationManager(CRUDManager):
             "danger" if self.is_challenging else "default"
         )
 
+    def toggle_is_validated(self, event):
+        """Toggle the 'is_challenging' flag and change button color."""
+        self.is_validated = event.new
+        self.is_validated_button.button_type = (
+            "success" if self.is_validated else "default"
+        )
+
     def toggle_load_record(self, event):
         """Toggle the 'is_challenging' flag and change button color."""
         if "uuid" in self.spatial_query_app.current_transect.columns:
@@ -357,6 +382,9 @@ class ClassificationManager(CRUDManager):
             self.save_feedback_message,
             name="Classification Management",
         )
+
+    def view_quality_assurance(self):
+        return pn.Column(self.confidence_slider, self.is_validated_button)
 
     def view_load_record(self):
         return self.load_record_button

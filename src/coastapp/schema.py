@@ -161,9 +161,11 @@ class ClassificationSchemaManager(CRUDManager):
                 "proposing a new one using the widget below."
             ),
             *self.attribute_dropdowns.values(),
-            self.classification_display_pane,
             name="Classification Management",
         )
+
+    def view_classification_display_pane(self):
+        return self.classification_display_pane
 
     def view_add_new_class_widget(self):
         return pn.Column(

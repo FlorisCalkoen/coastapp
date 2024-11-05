@@ -129,6 +129,8 @@ app = pn.template.FastListTemplate(
     sidebar=[
         user_manager.view(),
         classification_schema_manager.view_main_widget(),
+        classification_manager.view_quality_assurance(),
+        classification_schema_manager.view_classification_display_pane(),
         classification_manager.view(),
         additional_features_view,
         classification_schema_manager.view_add_new_class_widget(),
