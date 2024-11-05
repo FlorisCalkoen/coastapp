@@ -112,6 +112,15 @@ additional_features_view = pn.Column(
     name="Additional Features",
 )
 
+test_predictions_view = pn.Column(
+    pn.pane.Markdown("## [Advanced:] Explore the test predictions"),
+    spatial_query_app.view_test_layer_select(),
+    spatial_query_app.view_storage_backend_button(),
+    spatial_query_app.view_test_predictions_button(),
+    classification_manager.view_load_record(),
+    name="[Advanced]: Explore the test predictions",
+)
+
 
 # Define the Panel template
 app = pn.template.FastListTemplate(
@@ -122,6 +131,7 @@ app = pn.template.FastListTemplate(
         classification_manager.view(),
         additional_features_view,
         classification_schema_manager.view_add_new_class_widget(),
+        test_predictions_view,
     ],
     main=[
         intro_pane,
