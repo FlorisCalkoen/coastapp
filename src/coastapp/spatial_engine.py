@@ -547,6 +547,8 @@ class SpatialQueryApp(param.Parameterized):
         if "pred_shore_type" in df.columns:
             df["coast_color"] = df["pred_coast_type"].map(self.coast_type_colors)
             df["shore_marker"] = df["pred_shore_type"].map(self.shore_type_markers)
+            pred_coast_type = df["pred_coast_type"].item()
+            pred_shore_type = df["pred_shore_type"].item()
 
             df = df.assign(geometry=gpd.GeoSeries.from_xy(df.lon, df.lat, crs=4326))[
                 [
@@ -568,7 +570,8 @@ class SpatialQueryApp(param.Parameterized):
                     "pred_shore_type",
                     "pred_coast_type",
                     "shore_marker",
-                ],  # Values used for hover info and styling
+                ],
+                label=f"Shore type: {pred_shore_type} \nCoastal type: {pred_coast_type}",
             ).opts(
                 color="coast_color",
                 size=50,
