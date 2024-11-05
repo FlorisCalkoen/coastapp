@@ -54,6 +54,9 @@ class ClassificationManager(CRUDManager):
         self.is_challenging_button = pn.widgets.Toggle(
             name="Flag as Challenging", button_type="default", value=False
         )
+        self.load_record_button = pn.widgets.Toggle(
+            name="Load record", button_type="default", value=False
+        )
 
         self.comment_input = pn.widgets.TextAreaInput(
             name="Comment", placeholder="[Optional] Enter your comments here..."
@@ -79,6 +82,7 @@ class ClassificationManager(CRUDManager):
         # Setup callbacks
         self.save_button.on_click(self.save_classification)
         self.is_challenging_button.param.watch(self.toggle_is_challenging, "value")
+        self.load_record_button.param.watch(self.toggle_load_record, "value")
         self.previous_button.on_click(self.load_previous_transect)
         self.next_button.on_click(self.load_next_transect)
         self.uuid_text_input.param.watch(self._load_record_by_uuid, "value")
@@ -332,6 +336,17 @@ class ClassificationManager(CRUDManager):
             "danger" if self.is_challenging else "default"
         )
 
+    def toggle_load_record(self, event):
+        """Toggle the 'is_challenging' flag and change button color."""
+        if "uuid" in self.spatial_query_app.current_transect.columns:
+            record = (
+                self.spatial_query_app.labelled_transect_manager.fetch_record_by_uuid(
+                    self.spatial_query_app.current_transect.uuid.item()
+                )
+            )
+            if record:
+                self.load_transect_data_into_widgets(record)
+
     def view(self):
         """View for displaying the classification save interface."""
         return pn.Column(
@@ -342,3 +357,6 @@ class ClassificationManager(CRUDManager):
             self.save_feedback_message,
             name="Classification Management",
         )
+
+    def view_load_record(self):
+        return self.load_record_button
