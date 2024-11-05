@@ -204,7 +204,7 @@ class SpatialQueryApp(param.Parameterized):
     use_test_storage_backend = param.Boolean(
         default=False, doc="Use test storage backend"
     )
-    only_show_incorrect_predictions = param.Boolean(
+    only_use_incorrect = param.Boolean(
         default=False, doc="Only show incorrect predictions"
     )
 
@@ -230,6 +230,7 @@ class SpatialQueryApp(param.Parameterized):
 
         self.initialize_test_layers()
         self.test_df = None
+        self.seen_uuids = []
 
         # Mark the view as initialized
         self.view_initialized = True
@@ -271,6 +272,11 @@ class SpatialQueryApp(param.Parameterized):
             name="Get random transect (slow)", button_type="default"
         )
         self.get_random_transect_button.on_click(self._get_random_transect)
+
+        self.get_random_test_sample_button = pn.widgets.Button(
+            name="Get random test sample", button_type="default"
+        )
+        self.get_random_test_sample_button.on_click(self._get_random_test_sample)
 
         # Add a radio button group for basemap selection
         self.basemap_button = pn.widgets.RadioButtonGroup(
@@ -367,6 +373,24 @@ class SpatialQueryApp(param.Parameterized):
         transect = self.spatial_engine.get_random_transect()
         self.set_transect(transect, query_triggered=False)
 
+    def _get_random_test_sample(self, event):
+        """Handle the button click to get a random transect."""
+        test_df = self.fetch_test_predictions()
+
+        if self.only_use_incorrect:
+            test_df = test_df[
+                (test_df["shore_type"] != test_df["pred_shore_type"])
+                | (test_df["coastal_type"] != test_df["pred_coast_type"])
+            ]
+        test_df = test_df[~test_df["uuid"].isin(self.seen_uuids)]
+        sample = test_df.sample(1)
+        self.seen_uuids.append(sample["uuid"].item())
+        try:
+            self.set_transect(sample, query_triggered=False)
+        except Exception:
+            logger.exception("Failed to query geometry. Reverting to default transect.")
+            self.set_transect(self.default_geometry, query_triggered=False)
+
     def toggle_labelled_transects(self, event):
         """Handle the toggle button to show or hide labelled transects."""
         self.show_labelled_transects = event.new
@@ -394,9 +418,9 @@ class SpatialQueryApp(param.Parameterized):
 
     def toggle_only_show_incorrect_predictions(self, event):
         """Handle the toggle button to show or hide labelled transects."""
-        self.only_show_incorrect_predictions = event.new
+        self.only_use_incorrect = event.new
 
-        if self.only_show_incorrect_predictions:
+        if self.only_use_incorrect:
             self.only_show_incorrect_predictions_button.button_type = "success"
 
             if not isinstance(self.test_df, gpd.GeoDataFrame):
@@ -418,7 +442,7 @@ class SpatialQueryApp(param.Parameterized):
                 self.test_df = self.fetch_test_predictions()
 
         else:
-            self.toggle_test_predictions.button_type = "default"
+            self.storage_backend_button.button_type = "default"
             self.storage_backend = StorageBackend.GCTS
 
     def update_view(self):
@@ -461,8 +485,11 @@ class SpatialQueryApp(param.Parameterized):
             logger.exception("Failed to query geometry. Reverting to default transect.")
             self.set_transect(self.default_geometry, query_triggered=False)
 
-    def fetch_test_predictions(self):
+    def fetch_test_predictions(self, force=False):
         """Load the test predictions from the selected parquet file."""
+        if isinstance(self.test_df, gpd.GeoDataFrame) and not force:
+            return self.test_df
+
         self.test_layer_select.value
         fs = fsspec.filesystem("az", **storage_options)
         with fs.open(self.test_layer_options[self.test_layer_select.value]) as f:
@@ -507,7 +534,7 @@ class SpatialQueryApp(param.Parameterized):
             nearest_transect = gpd.sjoin_nearest(point, df).index_right.item()
             df = df.to_crs(4326)
             geometry = df.iloc[[nearest_transect]]
-            self.set_transect(geometry, query_triggered=True)
+            self.set_transect(geometry, query_triggered=False)
         except Exception:
             logger.exception("Failed to query geometry. Reverting to default transect.")
             self.set_transect(self.default_geometry, query_triggered=False)
@@ -566,7 +593,7 @@ class SpatialQueryApp(param.Parameterized):
             .reset_index(drop=True)
         )
 
-        if self.only_show_incorrect_predictions:
+        if self.only_use_incorrect:
             df = df[
                 (df["shore_type"] != df["pred_shore_type"])
                 | (df["coastal_type"] != df["pred_coast_type"])
@@ -637,3 +664,7 @@ class SpatialQueryApp(param.Parameterized):
     def view_only_show_incorrect_predictions(self):
         """Returns the toggle button to view predicted test transects."""
         return self.only_show_incorrect_predictions_button
+
+    def view_get_random_test_sample(self):
+        """Returns the toggle button to view predicted test transects."""
+        return self.get_random_test_sample_button
