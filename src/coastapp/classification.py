@@ -6,32 +6,12 @@ import pandas as pd
 import panel as pn
 
 from coastapp.crud import CRUDManager
+from coastapp.specification import Record, TypologyTrainSample
 
 logger = logging.getLogger(__name__)
 
 
 class ClassificationManager(CRUDManager):
-    DEFAULT_RECORD_SCHEMA = {
-        "uuid": "",
-        "user": "",
-        "transect_id": "",
-        "lon": "",
-        "lat": "",
-        "geometry": "",
-        "datetime_created": "",
-        "datetime_updated": "",
-        "shore_type": "",
-        "coastal_type": "",
-        "landform_type": "",
-        "is_built_environment": "",
-        "has_defense": "",
-        "is_challenging": False,
-        "comment": "",
-        "link": "",
-        "confidence": "medium",
-        "is_validated": False,
-    }
-
     def __init__(
         self,
         storage_options,
@@ -47,7 +27,7 @@ class ClassificationManager(CRUDManager):
         self.classification_schema_manager = classification_schema_manager
         self.spatial_query_app = spatial_query_app
         self.is_challenging = False
-        self.record = self.DEFAULT_RECORD_SCHEMA.copy()
+        self.record = TypologyTrainSample.null_dict().copy()
 
         # Panel widgets
         self.save_button = pn.widgets.Button(
@@ -114,6 +94,7 @@ class ClassificationManager(CRUDManager):
     def load_transect_data_into_widgets(self, record):
         """Load transect record data into the classification widgets."""
         # Update the classification widgets based on the fetched record
+        # record = self.spatial_query_app.labelled_transect_manager.get_current_record()
         self.spatial_query_app.current_transect_id = record["transect_id"]
         self.classification_schema_manager.attribute_dropdowns[
             "shore_type"
@@ -136,21 +117,21 @@ class ClassificationManager(CRUDManager):
 
     def reset_record(self):
         """Reset the record to the default schema."""
-        self.record = self.DEFAULT_RECORD_SCHEMA.copy()
+        self.record = TypologyTrainSample.null_dict().copy()
 
     def load_previous_transect(self, event=None):
         """Callback to load the previous transect."""
         record = self.spatial_query_app.labelled_transect_manager.get_previous_record()
         if record:
             self.record.update(record)
-            self.load_transect_data_into_widgets(self.record)
+            self.load_transect_data_into_widgets(record)
 
     def load_next_transect(self, event=None):
         """Callback to load the next transect."""
         record = self.spatial_query_app.labelled_transect_manager.get_next_record()
         if record:
             self.record.update(record)
-            self.load_transect_data_into_widgets(self.record)
+            self.load_transect_data_into_widgets(record)
 
     def iterate_labelled_transects_view(self):
         """Return a Row containing the Previous and Next transect buttons."""
@@ -207,11 +188,12 @@ class ClassificationManager(CRUDManager):
         ].value
 
         # Collect spatial data from the GeoDataFrame in spatial_query_app
-        spatial_data = self.spatial_query_app.get_selected_geometry()
-        transect_id = spatial_data.get("transect_id")
-        lon = spatial_data.get("lon")
-        lat = spatial_data.get("lat")
-        geometry = spatial_data.get("geometry")
+        current_transect = self.spatial_query_app.get_selected_geometry()
+        transect_id = current_transect.get("transect_id")
+        lon = current_transect.get("lon")
+        lat = current_transect.get("lat")
+        geometry = current_transect.get("geometry")
+        datetime_created = current_transect.get("datetime_created")
 
         # Handle missing spatial data
         if pd.isna(transect_id) or pd.isna(lon) or pd.isna(lat) or pd.isna(geometry):
@@ -224,8 +206,7 @@ class ClassificationManager(CRUDManager):
         # NOTE: you cannot use self.record.get("datetime_created", current_datetime)
         # because then you will find the default value, which is an empty string. See
         # default schema. So, if datetime_created is an empty string, set it to current_datetime
-        datetime_created = self.record.get("datetime_created")
-        if not datetime_created:
+        if pd.isna(datetime_created):
             datetime_created = current_datetime
 
         datetime_updated = current_datetime
@@ -246,11 +227,11 @@ class ClassificationManager(CRUDManager):
             "landform_type": landform_type,
             "is_built_environment": is_built_environment,
             "has_defense": has_defense,
-            "is_challenging": self.is_challenging,
+            "is_challenging": self.is_challenging_button.value,
             "comment": self.comment_input.value,
             "link": self.link_input.value,
             "confidence": self.confidence_slider.value,
-            "is_validated": self.is_validated,
+            "is_validated": self.is_validated_button.value,
         }
 
         # Update self.record only after all data is collected
@@ -311,19 +292,22 @@ class ClassificationManager(CRUDManager):
     def save_classification(self, event=None):
         """Save the classification data to cloud storage."""
         record = self.collect_classification_data()
+        record = Record.from_data(record)
 
         if not record:
             return
 
-        if not self.validate_record(record):
+        if not self.validate_record(record.to_dict()):
             return
 
         # If labelled transects are in memory, update the in-memory dataframe
         if self.spatial_query_app.labelled_transect_manager.df is not None:
-            self.spatial_query_app.labelled_transect_manager.add_record(record)
+            self.spatial_query_app.labelled_transect_manager.add_record(
+                record.to_frame()
+            )
 
         # Save the record to cloud storage
-        self.create_record(record)
+        self.create_record(record.to_record())
         self.save_feedback_message.object = f"**Success:** Classification saved successfully. File: {self.generate_filename(record)}"
         self.save_button.disabled = True  # Disable save after successful save
 

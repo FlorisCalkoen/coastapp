@@ -27,25 +27,6 @@ hv.extension("bokeh")
 
 stac_url = "https://coclico.blob.core.windows.net/stac/test/catalog.json"
 
-default_geometry = {
-    "transect_id": "cl32408s01tr00223948",
-    "lon": 4.277131,
-    "lat": 52.112953,
-    "bearing": 313.57275390625,
-    "utm_epsg": 32631,
-    "geometry": "LINESTRING (4.287529606158882 52.106643659044614, 4.266728801968574 52.11926398930266)",
-    "bbox": {
-        "xmax": 4.287529606158882,
-        "xmin": 4.266728801968574,
-        "ymax": 52.11926398930266,
-        "ymin": 52.106643659044614,
-    },
-    "quadkey": "020202113000",
-    "country": "NL",
-    "common_country_name": "Netherlands",
-    "common_region_name": "South Holland",
-}
-
 spatial_engine = SpatialQueryEngine(
     stac_url=stac_url,
     collection_id="gcts",
@@ -70,7 +51,6 @@ labelled_transect_manager = LabelledTransectManager(
 spatial_query_app = SpatialQueryApp(
     spatial_engine=spatial_engine,
     labelled_transect_manager=labelled_transect_manager,
-    default_geometry=default_geometry,
 )
 
 classification_schema_manager = ClassificationSchemaManager(

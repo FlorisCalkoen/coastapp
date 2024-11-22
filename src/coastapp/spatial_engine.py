@@ -4,7 +4,6 @@ from typing import Literal
 
 import dotenv
 import duckdb
-import fsspec
 import geopandas as gpd
 import geoviews as gv
 import geoviews.tile_sources as gvts
@@ -13,11 +12,12 @@ import param
 import pystac_client
 import shapely
 from holoviews import streams
-from shapely import wkt
 from shapely.geometry import Point
 from shapely.wkb import loads
 
 from coastapp.enums import StorageBackend
+from coastapp.specification import Record, Transect
+from coastapp.style_config import COAST_TYPE_COLORS, SHORE_TYPE_MARKERS
 from coastapp.utils import buffer_geometries_in_utm, create_offset_rectangle
 
 logger = logging.getLogger(__name__)
@@ -208,7 +208,10 @@ class SpatialQueryApp(param.Parameterized):
         default=False, doc="Only show incorrect predictions"
     )
 
-    def __init__(self, spatial_engine, labelled_transect_manager, default_geometry):
+    shore_type_markers = SHORE_TYPE_MARKERS
+    coast_type_colors = COAST_TYPE_COLORS
+
+    def __init__(self, spatial_engine, labelled_transect_manager):
         super().__init__()
         self.spatial_engine = spatial_engine
         self.labelled_transect_manager = labelled_transect_manager
@@ -222,14 +225,13 @@ class SpatialQueryApp(param.Parameterized):
         )
 
         # Set the default transect without triggering a view update
-        self.default_geometry = default_geometry
-        self.set_transect(self.default_geometry, query_triggered=False, update=False)
+
+        self.default_geometry = Transect.from_defaults()
+        self.set_transect(self.default_geometry, update=False)
 
         # Initialize the UI components (view initialized first)
         self.transect_view = self.initialize_view()
 
-        self.initialize_test_layers()
-        self.test_df = None
         self.seen_uuids = []
 
         # Mark the view as initialized
@@ -284,10 +286,6 @@ class SpatialQueryApp(param.Parameterized):
         )
         self.basemap_button.param.watch(self.update_basemap, "value")
 
-        self.test_layer_select = pn.widgets.Select(
-            options=list(self.test_layer_options.keys())
-        )
-
     def initialize_view(self):
         """Initializes the HoloViews pane using the current transect."""
         return pn.pane.HoloViews(
@@ -295,14 +293,6 @@ class SpatialQueryApp(param.Parameterized):
                 self.plot_transect(self.current_transect) * self.tiles * self.point_draw
             ).opts(active_tools=["wheel_zoom"])
         )
-
-    def initialize_test_layers(self):
-        TEST_PREDICTIONS_PREFIX = "az://typology/test/*.parquet"
-        fs = fsspec.filesystem("az", **storage_options)
-        files = fs.glob(TEST_PREDICTIONS_PREFIX)
-        self.test_layer_options = {
-            f.split("/")[-1].replace(".parquet", ""): f for f in files
-        }
 
     def update_basemap(self, event):
         """Update the tiles based on the selected basemap."""
@@ -349,20 +339,16 @@ class SpatialQueryApp(param.Parameterized):
             polygon_plot * transect_plot * landward_point_plot * seaward_point_plot
         ).opts(legend_position="bottom_right")
 
-    def prepare_transect(self, transect_data):
-        """Converts transect data dictionary to GeoDataFrame."""
-        geom = wkt.loads(transect_data.get("geometry"))
-        transect_gdf = gpd.GeoDataFrame(
-            [transect_data], geometry=[geom], crs="EPSG:4326"
-        )
-        return transect_gdf
-
-    def set_transect(self, transect_data, query_triggered=False, update=True):
+    def set_transect(self, data, update=True):
         """Sets the current transect and optionally updates the view."""
-        if isinstance(transect_data, dict):
-            self.current_transect = self.prepare_transect(transect_data)
-        else:
-            self.current_transect = transect_data
+
+        if isinstance(data, Transect):
+            data = data.to_frame()
+
+        if isinstance(data, dict):
+            data = Record.from_data(data).to_frame()
+
+        self.current_transect = data
 
         # Update the view only if explicitly allowed and after initialization
         if update and self.view_initialized:
@@ -371,11 +357,12 @@ class SpatialQueryApp(param.Parameterized):
     def _get_random_transect(self, event):
         """Handle the button click to get a random transect."""
         transect = self.spatial_engine.get_random_transect()
-        self.set_transect(transect, query_triggered=False)
+        transect = Record.from_data(transect)
+        self.set_transect(transect)
 
     def _get_random_test_sample(self, event):
         """Handle the button click to get a random transect."""
-        test_df = self.fetch_test_predictions()
+        test_df = self.labelled_transect_manager.test_df
 
         if self.only_use_incorrect:
             test_df = test_df[
@@ -386,10 +373,10 @@ class SpatialQueryApp(param.Parameterized):
         sample = test_df.sample(1)
         self.seen_uuids.append(sample["uuid"].item())
         try:
-            self.set_transect(sample, query_triggered=False)
+            self.set_transect(sample)
         except Exception:
             logger.exception("Failed to query geometry. Reverting to default transect.")
-            self.set_transect(self.default_geometry, query_triggered=False)
+            self.set_transect(self.default_geometry)
 
     def toggle_labelled_transects(self, event):
         """Handle the toggle button to show or hide labelled transects."""
@@ -397,7 +384,6 @@ class SpatialQueryApp(param.Parameterized):
 
         if self.show_labelled_transects:
             self.toggle_button.button_type = "success"  # Set to green
-            self.labelled_transect_manager.load()
         else:
             self.toggle_button.button_type = "default"
         self.update_view()
@@ -409,9 +395,6 @@ class SpatialQueryApp(param.Parameterized):
         if self.show_test_predictions:
             self.test_predictions_button.button_type = "success"
 
-            if not isinstance(self.test_df, gpd.GeoDataFrame):
-                self.test_df = self.fetch_test_predictions()
-
         else:
             self.test_predictions_button.button_type = "default"
         self.update_view()
@@ -422,9 +405,6 @@ class SpatialQueryApp(param.Parameterized):
 
         if self.only_use_incorrect:
             self.only_show_incorrect_predictions_button.button_type = "success"
-
-            if not isinstance(self.test_df, gpd.GeoDataFrame):
-                self.test_df = self.fetch_test_predictions()
 
         else:
             self.only_show_incorrect_predictions_button.button_type = "default"
@@ -438,9 +418,6 @@ class SpatialQueryApp(param.Parameterized):
             self.storage_backend_button.button_type = "success"  # Set to green
             self.storage_backend = StorageBackend.PREDICTIONS
 
-            if not isinstance(self.test_df, gpd.GeoDataFrame):
-                self.test_df = self.fetch_test_predictions()
-
         else:
             self.storage_backend_button.button_type = "default"
             self.storage_backend = StorageBackend.GCTS
@@ -451,9 +428,7 @@ class SpatialQueryApp(param.Parameterized):
 
         # If show_labelled_transects is True, include labelled transects in the view
         if self.show_labelled_transects:
-            labelled_transects_plot = (
-                self.labelled_transect_manager.plot_labelled_transects()
-            )
+            labelled_transects_plot = self.plot_labelled_transects()
             new_view = new_view * labelled_transects_plot
 
         if self.show_test_predictions:
@@ -474,54 +449,18 @@ class SpatialQueryApp(param.Parameterized):
             if self.storage_backend == StorageBackend.GCTS:
                 self.query_and_set_transect(x, y)
             elif self.storage_backend == StorageBackend.PREDICTIONS:
-                self.query_and_set_test_predictions(x, y)
+                self.query_and_set_test_prediction(x, y)
 
     def query_and_set_transect(self, x, y):
         """Queries the nearest transect and updates the current transect."""
         try:
             geometry = self.spatial_engine.get_nearest_geometry(x, y)
-            self.set_transect(geometry, query_triggered=True)
+            self.set_transect(geometry)
         except Exception:
             logger.exception("Failed to query geometry. Reverting to default transect.")
-            self.set_transect(self.default_geometry, query_triggered=False)
+            self.set_transect(self.default_geometry)
 
-    def fetch_test_predictions(self, force=False):
-        """Load the test predictions from the selected parquet file."""
-        if isinstance(self.test_df, gpd.GeoDataFrame) and not force:
-            return self.test_df
-
-        self.test_layer_select.value
-        fs = fsspec.filesystem("az", **storage_options)
-        with fs.open(self.test_layer_options[self.test_layer_select.value]) as f:
-            df = gpd.read_parquet(f)
-        df = df.dropna(subset="user").reset_index(drop=True)
-
-        # Map symbols for shore_type
-        self.shore_type_markers = {
-            "sandy_gravel_or_small_boulder_sediments": "diamond",
-            "rocky_shore_platform_or_large_boulders": "square",
-            "muddy_sediments": "circle",
-            "no_sediment_or_shore_platform": "cross",
-        }
-
-        # Enhanced color map for coast_type
-        self.coast_type_colors = {
-            "cliffed_or_steep": "#D72638",  # deep red
-            "dune": "#F4D35E",  # sandy yellow
-            "inlet": "#4F6D7A",  # soft blue
-            "bedrock_plain": "#A9A9A9",  # solid gray
-            "sediment_plain": "#8B5E3C",  # rich brown
-            "wetland": "#3CAEA3",  # vibrant green
-            "moderately_sloped": "#F08A5D",  # warm orange
-        }
-
-        # Add color and symbol mapping to the dataframe
-        df["coast_color"] = df["pred_coast_type"].map(self.coast_type_colors)
-        df["shore_marker"] = df["pred_shore_type"].map(self.shore_type_markers)
-
-        return df
-
-    def query_and_set_test_predictions(self, x, y):
+    def query_and_set_test_prediction(self, x, y):
         """Queries the nearest transect and updates the current transect."""
         point = (
             gpd.GeoSeries.from_xy([x], [y], crs="EPSG:4326")
@@ -529,19 +468,41 @@ class SpatialQueryApp(param.Parameterized):
             .to_frame("geometry")
         )
         try:
-            df = self.test_df.copy()
+            df = self.labelled_transect_manager.test_df.copy()
             df = df.to_crs(3857).reset_index(drop=True)
             nearest_transect = gpd.sjoin_nearest(point, df).index_right.item()
             df = df.to_crs(4326)
             geometry = df.iloc[[nearest_transect]]
-            self.set_transect(geometry, query_triggered=False)
+            self.set_transect(geometry)
         except Exception:
             logger.exception("Failed to query geometry. Reverting to default transect.")
-            self.set_transect(self.default_geometry, query_triggered=False)
+            self.set_transect(self.default_geometry)
+
+    def plot_labelled_transects(self) -> pn.pane.HoloViews:
+        """Plot the labelled transects from the loaded GeoDataFrame."""
+
+        # Create a copy of the dataframe for plotting as points
+        plot_df = self.labelled_transect_manager.df.copy()
+
+        # Convert to points for plotting
+        plot_df = gpd.GeoDataFrame(
+            plot_df.drop(columns=["geometry"]),
+            geometry=gpd.points_from_xy(plot_df["lon"], plot_df["lat"]),
+            crs="EPSG:4326",
+        )
+
+        plot = plot_df[["geometry"]].hvplot(
+            geo=True,
+            color="red",
+            responsive=True,
+            size=25,
+            label="Labelled Transects",
+            line_color="green",
+        )
+        return plot
 
     def plot_test_prediction(self):
         """Plot the test predictions layer with multiple points."""
-        # Ensure self.test_df has the required structure with 'lon', 'lat', and other attributes
 
         df = self.current_transect.copy()
         if "pred_shore_type" in df.columns:
@@ -574,7 +535,7 @@ class SpatialQueryApp(param.Parameterized):
                 label=f"Shore type: {pred_shore_type} \nCoastal type: {pred_coast_type}",
             ).opts(
                 color="coast_color",
-                size=50,
+                size=25,
                 marker="shore_marker",
             )
             return plot
@@ -583,13 +544,11 @@ class SpatialQueryApp(param.Parameterized):
 
     def plot_test_predictions(self):
         """Plot the test predictions layer with multiple points."""
-        # Ensure self.test_df has the required structure with 'lon', 'lat', and other attributes
 
+        test_df = self.labelled_transect_manager.test_df.copy()
         df = (
-            self.test_df.assign(
-                geometry=gpd.GeoSeries.from_xy(
-                    self.test_df.lon, self.test_df.lat, crs=4326
-                )
+            test_df.assign(
+                geometry=gpd.GeoSeries.from_xy(test_df.lon, test_df.lat, crs=4326)
             )
             .copy()
             .dropna(subset="user")
@@ -622,7 +581,7 @@ class SpatialQueryApp(param.Parameterized):
             ],  # Values used for hover info and styling
         ).opts(
             color="coast_color",
-            size=50,
+            size=25,
             marker="shore_marker",
             legend_position="right",
         )
@@ -630,9 +589,7 @@ class SpatialQueryApp(param.Parameterized):
 
     def get_selected_geometry(self):
         """Returns the currently selected transect's geometry and metadata."""
-        if not self.current_transect.empty:
-            return self.current_transect.iloc[0].to_dict()
-        return {"transect_id": None, "lon": None, "lat": None}
+        return self.current_transect.iloc[0].to_dict()
 
     def main_widget(self):
         """Returns the pane representing the current transect view and toggle button."""
@@ -662,7 +619,7 @@ class SpatialQueryApp(param.Parameterized):
 
     def view_test_layer_select(self):
         """Returns the toggle button to view predicted test transects."""
-        return self.test_layer_select
+        return self.labelled_transect_manager.test_layer_select
 
     def view_only_show_incorrect_predictions(self):
         """Returns the toggle button to view predicted test transects."""

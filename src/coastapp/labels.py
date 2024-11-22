@@ -4,282 +4,193 @@ import fsspec
 import geopandas as gpd
 import hvplot.pandas  # noqa
 import pandas as pd
-from shapely import wkt
+import panel as pn
 
 from coastapp.crud import CRUDManager
+from coastapp.specification import TypologyTrainSample
+from coastapp.style_config import COAST_TYPE_COLORS, SHORE_TYPE_MARKERS
 
 logger = logging.getLogger(__name__)
 
 
 class LabelledTransectManager(CRUDManager):
+    shore_type_markers = SHORE_TYPE_MARKERS
+    coast_type_colors = COAST_TYPE_COLORS
+
     def __init__(self, storage_options, container_name, prefix, user_manager):
         super().__init__(container_name=container_name, storage_options=storage_options)
         self.prefix = prefix
-        self.df = None  # Full DataFrame for all users
-        self.user_df = None  # DataFrame to hold records for the current user
-        self.current_index = None  # Tracks the current index for navigation
         self.user_manager = user_manager
+        self._current_uuid = None
+        self._df = None
+        self._test_df = None
+
+        self._load_test_layers()
 
         # Set up a watcher on the selected user parameter to trigger updates
         self.user_manager.selected_user.param.watch(
             self._on_selected_user_change, "value"
         )
+        self.test_layer_select = pn.widgets.Select(
+            options=list(self.test_layer_options.keys())
+        )
 
-    def _on_selected_user_change(self, event):
-        """Callback triggered when selected_user changes."""
-        new_user = event.new
-        logger.info(f"User changed to {new_user}, updating user_df.")
-        if self.df is not None:
-            self.update_user_df(new_user)
+        self.test_layer_select.param.watch(self._fetch_test_predictions, "value")
 
     @property
     def get_prefix(self) -> str:
         """Defines the prefix for classification storage."""
         return self.prefix
 
-    def generate_filename(self, record: dict) -> str:
-        """This method is inherited from CRUDManager, but we're not writing to cloud storage."""
-        return "not_used.json"
+    @property
+    def df(self) -> gpd.GeoDataFrame:
+        """Lazy-loaded property for the main DataFrame."""
+        if self._df is None:
+            self.load()
+        return self._df
 
-    def load(self, force_reload=False):
-        """
-        Load all labelled transects from storage into a GeoPandas dataframe.
-        """
-        if self.df is not None and not force_reload:
-            return self.df
+    @property
+    def user_df(self) -> gpd.GeoDataFrame:
+        """Get the user-specific DataFrame."""
+        _user_df = self.df[self.df["user"] == self.user_manager.selected_user.value]
 
-        # Load the data
+        _user_df = (
+            _user_df.sort_values(["datetime_created", "datetime_updated"])
+            .groupby("transect_id")
+            .tail(1)
+        )
+
+        return _user_df
+
+    @property
+    def test_df(self) -> gpd.GeoDataFrame:
+        """Get the test DataFrame."""
+        if self._test_df is None:
+            self._fetch_test_predictions()
+        return self._test_df
+
+    @property
+    def current_uuid(self) -> str:
+        """Get the current index for navigation."""
+        if self._current_uuid is None:
+            self._current_uuid = self.user_df.iloc[-1].uuid.item()
+        return self._current_uuid
+
+    def load(self) -> gpd.GeoDataFrame:
+        """Load all labelled transects from storage into a GeoPandas dataframe."""
         fs = fsspec.filesystem("az", **self.storage_options)
         labelled_files = fs.glob(f"{self.base_uri}/*.json")
-
         all_records = []
         for file in labelled_files:
             try:
                 record = self.read_record(file.split("/")[-1])
-                all_records.append(record)
+                all_records.append(TypologyTrainSample.from_dict(record).to_frame())
             except Exception as e:
                 logger.warning(f"Failed to load record from {file}: {e}")
 
         if all_records:
-            df = pd.DataFrame(all_records)
-            df["datetime_created"] = pd.to_datetime(df["datetime_created"])
-            df["datetime_updated"] = pd.to_datetime(df["datetime_updated"])
-            df["geometry"] = df["geometry"].apply(wkt.loads)
-            self.df = gpd.GeoDataFrame(df, geometry="geometry", crs="EPSG:4326")
+            self._df = pd.concat(all_records)
         else:
-            self.df = gpd.GeoDataFrame(
-                columns=[
-                    "user",
-                    "transect_id",
-                    "datetime_created",
-                    "datetime_updated",
-                    "lon",
-                    "lat",
-                    "geometry",
-                ]
-            )
+            self._df = TypologyTrainSample.empty_frame()
+        return self._df
 
+    def reload(self) -> gpd.GeoDataFrame:
+        """Forces a reload of the main DataFrame."""
+        self._df = self.load()
         return self.df
 
-    def extract_user_df(self, user):
-        """
-        Extract the latest record per transect_id for a given user, sorted by datetime_created.
-        """
-        # Filter by user
-        user_records = self.df[self.df["user"] == user]
+    def _on_selected_user_change(self, event) -> None:
+        new_user = event.new
+        logger.info(f"User changed to {new_user}, updating user_df.")
+        self._current_uuid = None
 
-        if user_records.empty:
-            return gpd.GeoDataFrame()
+    def _load_test_layers(self) -> dict:
+        TEST_PREDICTIONS_PREFIX = "az://typology/test/*.parquet"
+        fs = fsspec.filesystem("az", **self.storage_options)
+        files = fs.glob(TEST_PREDICTIONS_PREFIX)
+        self.test_layer_options = {
+            f.split("/")[-1].replace(".parquet", ""): f for f in files
+        }
+        return self.test_layer_options
 
-        # Sort by transect_id, datetime_created, and datetime_updated
-        user_records = user_records.sort_values(
-            by=["transect_id", "datetime_created", "datetime_updated"],
-            ascending=[True, True, True],
+    def _fetch_test_predictions(self) -> gpd.GeoDataFrame:
+        """Load the test predictions from the selected parquet file."""
+
+        self.test_layer_select.value
+        fs = fsspec.filesystem("az", **self.storage_options)
+        with fs.open(self.test_layer_options[self.test_layer_select.value]) as f:
+            _test_df = gpd.read_parquet(f)
+        _test_df = _test_df.dropna(subset="user").reset_index(drop=True)
+
+        # Add color and symbol mapping to the dataframe
+        _test_df["coast_color"] = _test_df["pred_coast_type"].map(
+            self.coast_type_colors
+        )
+        _test_df["shore_marker"] = _test_df["pred_shore_type"].map(
+            self.shore_type_markers
         )
 
-        # Keep the latest record for each transect_id
-        latest_records = (
-            user_records.groupby("transect_id").tail(1).reset_index(drop=True)
-        )
+        self._test_df = _test_df
+        return self._test_df
 
-        # Sort by datetime_created for iteration
-        latest_records = latest_records.sort_values(by="datetime_created").reset_index(
-            drop=True
-        )
-
-        return latest_records
-
-    def add_record(self, record: dict):
+    def add_record(self, new_record_df: gpd.GeoDataFrame) -> None:
         """Add a new record to the in-memory dataframe and update the user_df."""
-        # Ensure that the DataFrame is loaded
-        if self.df is None:
-            self.load()
-
-        # Create the new record as a DataFrame and convert types
-        record_df = pd.DataFrame([record])
-        record_df["datetime_created"] = pd.to_datetime(record_df["datetime_created"])
-        record_df["datetime_updated"] = pd.to_datetime(record_df["datetime_updated"])
-        record_df["geometry"] = record_df["geometry"].apply(wkt.loads)
-
-        # Append the new record to the existing dataframe and reset the index
         try:
-            self.df = pd.concat([self.df, record_df], ignore_index=True).reset_index(
-                drop=True
-            )
+            self._df = pd.concat(
+                [self.df, new_record_df], ignore_index=True
+            ).reset_index(drop=True)
             logger.info("Record successfully added and dataframe index reset.")
-        except ValueError as e:
+        except Exception as e:
             logger.error(f"Failed to append the new record: {e}")
             raise
 
-        # Update the user-specific dataframe and keep the current index
-        self.update_user_df(record["user"], preserve_current_index=True)
-
-    def update_user_df(self, user, preserve_current_index=False):
-        """
-        Update the user-specific dataframe based on the latest records per transect_id.
-        Optionally preserves the current index if it's set to True.
-        """
-        previous_index_transect_id = None
-        if (
-            preserve_current_index
-            and self.current_index is not None
-            and not self.user_df.empty
-        ):
-            previous_index_transect_id = self.user_df.iloc[self.current_index][
-                "transect_id"
-            ]
-
-        # Update the user_df with the latest records for the user
-        self.user_df = self.extract_user_df(user)
-
-        if self.user_df.empty:
-            self.current_index = None
-        else:
-            # Restore the current index to the same transect_id if possible
-            if preserve_current_index and previous_index_transect_id is not None:
-                matching_indices = self.user_df.index[
-                    self.user_df["transect_id"] == previous_index_transect_id
-                ]
-                if not matching_indices.empty:
-                    self.current_index = matching_indices[0]
-                else:
-                    # Default to the last record
-                    self.current_index = len(self.user_df) - 1
-            else:
-                # Default to the last record
-                self.current_index = len(self.user_df) - 1
-
-    def get_next_record(self):
+    def get_next_record(self) -> dict | None:
         """Get the next record for the current user based on the current index."""
-        self.load()
 
-        if self.user_df is None or self.user_df.empty:
-            self.update_user_df(self.user_manager.selected_user.value)
+        current_index = self.user_df.index[self.user_df["uuid"] == self.current_uuid][0]
+        next_index = current_index + 1
+        if next_index >= len(self.user_df):
+            next_index = 0
 
-        if self.user_df.empty or self.current_index is None:
+        next_record = self.user_df.iloc[next_index]
+        self._current_uuid = next_record.uuid.item()
+        try:
+            record = TypologyTrainSample.from_frame(next_record).to_dict()
+            return record
+        except Exception:
             logger.warning(
                 f"No records found for user: {self.user_manager.selected_user.value}"
             )
             return None
 
-        # Move to the next record, ensuring we don't exceed the available records
-        self.current_index = min(self.current_index + 1, len(self.user_df) - 1)
-
-        next_record = self.user_df.iloc[self.current_index]
-        return self.format_record(next_record.to_dict())
-
-    def get_previous_record(self):
+    def get_previous_record(self) -> dict | None:
         """Get the previous record for the current user based on the current index."""
-        self.load()
+        current_index = self.user_df.index[self.user_df["uuid"] == self.current_uuid][0]
+        previous_index = current_index - 1
+        if previous_index == -1:
+            previous_index = len(self.user_df) - 1
 
-        if self.user_df is None or self.user_df.empty:
-            self.update_user_df(self.user_manager.selected_user.value)
-
-        if self.user_df.empty or self.current_index is None:
+        previous_record = self.user_df.iloc[previous_index]
+        self._current_uuid = previous_record.uuid.item()
+        try:
+            record = TypologyTrainSample.from_frame(previous_record).to_dict()
+            return record
+        except Exception:
             logger.warning(
                 f"No records found for user: {self.user_manager.selected_user.value}"
             )
             return None
 
-        # Move to the previous record, ensuring we don't go below the first record
-        self.current_index = max(self.current_index - 1, 0)
-
-        previous_record = self.user_df.iloc[self.current_index]
-        return self.format_record(previous_record.to_dict())
-
-    def fetch_record_by_uuid(self, uuid):
+    def fetch_record_by_uuid(self, uuid) -> dict | None:
         """Fetches record by UUID, loading data if not already loaded."""
-        if self.df is None or self.df.empty:
-            # Load data if it hasn't been loaded yet
-            self.load()
-
         # Search for UUID in the loaded data
-        matching_records = self.df[self.df["uuid"] == uuid]
+        record = self.df[self.df["uuid"] == uuid]
 
-        if not matching_records.empty:
-            return self.format_record(matching_records.iloc[0].to_dict())
+        if not record.empty:
+            return TypologyTrainSample.from_frame(record).to_dict()
 
-        return None  # No record found for this UUID
+        return None
 
-    def format_record(self, record):
-        """Format the record to match the classification schema."""
-        record["geometry"] = record["geometry"].wkt  # Convert geometry to WKT format
-
-        if isinstance(record["datetime_created"], pd.Timestamp):
-            record["datetime_created"] = record[
-                "datetime_created"
-            ].isoformat()  # Format timestamp to ISO string
-
-        if isinstance(record["datetime_updated"], pd.Timestamp):
-            record["datetime_updated"] = record[
-                "datetime_updated"
-            ].isoformat()  # Format timestamp to ISO string
-
-        # Ensure all required fields are present, fill with None if missing
-        required_fields = [
-            "uuid",
-            "user",
-            "transect_id",
-            "lon",
-            "lat",
-            "geometry",
-            "datetime_created",
-            "datetime_updated",
-            "shore_type",
-            "coastal_type",
-            "landform_type",
-            "is_built_environment",
-            "has_defense",
-            "is_challenging",
-            "comment",
-            "link",
-        ]
-        for field in required_fields:
-            if field not in record:
-                record[field] = None
-
-        return record
-
-    def plot_labelled_transects(self):
-        """Plot the labelled transects from the loaded GeoDataFrame."""
-        df = self.load()  # Ensure data is loaded
-
-        # Create a copy of the dataframe for plotting as points
-        plot_df = df.copy()
-
-        # Convert to points for plotting
-        plot_df = gpd.GeoDataFrame(
-            plot_df.drop(columns=["geometry"]),
-            geometry=gpd.points_from_xy(plot_df["lon"], plot_df["lat"]),
-            crs="EPSG:4326",
-        )
-
-        plot = plot_df[["geometry"]].hvplot(
-            geo=True,
-            color="red",
-            responsive=True,
-            size=50,
-            label="Labelled Transects",
-            line_color="green",
-        )
-        return plot
+    def generate_filename(self, record: dict) -> str:
+        """This method is inherited from CRUDManager, but we're not writing to cloud storage."""
+        return "not_used.json"
