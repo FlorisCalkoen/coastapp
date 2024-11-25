@@ -7,7 +7,7 @@ import pandas as pd
 import panel as pn
 
 from coastapp.crud import CRUDManager
-from coastapp.specification import TypologyTrainSample
+from coastapp.schema import TypologyTrainSample
 from coastapp.style_config import COAST_TYPE_COLORS, SHORE_TYPE_MARKERS
 
 logger = logging.getLogger(__name__)

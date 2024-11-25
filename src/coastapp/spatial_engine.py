@@ -16,7 +16,7 @@ from shapely.geometry import Point
 from shapely.wkb import loads
 
 from coastapp.enums import StorageBackend
-from coastapp.specification import Record, Transect
+from coastapp.schema import Record, Transect
 from coastapp.style_config import COAST_TYPE_COLORS, SHORE_TYPE_MARKERS
 from coastapp.utils import buffer_geometries_in_utm, create_offset_rectangle
 

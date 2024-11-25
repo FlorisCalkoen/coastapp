@@ -1,4 +1,6 @@
 import datetime
+import enum
+import uuid
 from abc import abstractmethod
 from typing import (
     Any,
@@ -57,6 +59,77 @@ LandformType = Literal[
 IsBuiltEnvironment = Literal["true", "false"]
 HasDefense = Literal["true", "false"]
 
+PANDAS_TYPE_MAP = {
+    # Primitive Types
+    str: "object",
+    int: "int64",
+    float: "float64",
+    bool: "bool",
+    datetime.datetime: "datetime64[ns]",
+    datetime.date: "datetime64[ns]",
+    datetime.time: "object",
+    dict: "object",  # Nested structures
+    list: "object",  # Arrays
+    tuple: "object",  # Arrays
+    uuid.UUID: "object",
+    # Geometries (Shapely)
+    Point: "object",
+    LineString: "object",
+    Polygon: "object",
+    MultiPoint: "object",
+    MultiLineString: "object",
+    MultiPolygon: "object",
+    GeometryCollection: "object",
+    # Enums and Fallbacks
+    enum.Enum: "object",
+    object: "object",  # Catch-all for unsupported types
+}
+
+GEOPARQUET_TYPE_MAP = {
+    # Primitive Types
+    str: "STRING",
+    int: "INTEGER",
+    float: "DOUBLE",
+    bool: "BOOLEAN",
+    datetime.datetime: "DATETIME",
+    datetime.date: "DATE",
+    datetime.time: "TIME",
+    dict: "STRUCT",  # Nested structures
+    list: "ARRAY",  # Arrays
+    tuple: "ARRAY",  # Arrays
+    uuid.UUID: "STRING",
+    # Geometries (Shapely)
+    Point: "GEOMETRY",
+    LineString: "GEOMETRY",
+    Polygon: "GEOMETRY",
+    MultiPoint: "GEOMETRY",
+    MultiLineString: "GEOMETRY",
+    MultiPolygon: "GEOMETRY",
+    GeometryCollection: "GEOMETRY",
+    # Enums and Fallbacks
+    enum.Enum: "STRING",  # Serialize enums as strings
+    object: "STRING",  # Catch-all for unsupported types
+}
+
+
+def custom_schema_hook(typ):
+    """Provide JSON schema for custom types."""
+    if typ is LineString:
+        # Represent LineString as a WKT string
+        return {"type": "string", "description": "A WKT representation of a LineString"}
+    if typ is dict:  # Example for bbox as dict
+        return {
+            "type": "object",
+            "properties": {
+                "xmin": {"type": "number"},
+                "ymin": {"type": "number"},
+                "xmax": {"type": "number"},
+                "ymax": {"type": "number"},
+            },
+            "required": ["xmin", "ymin", "xmax", "ymax"],
+        }
+    return None  # For unsupported types, fallback to default behavior
+
 
 def encode_custom(obj):
     """Encode custom data types for serialization."""
@@ -82,8 +155,19 @@ def decode_custom(type, obj):
     """Decode custom data types for deserialization."""
     if type is datetime.datetime:
         return datetime.datetime.fromisoformat(obj)
-    elif type in {GeometryCollection, LineString, Point}:
-        return wkt.loads(obj)
+    elif type in {
+        GeometryCollection,
+        LineString,
+        Point,
+        Polygon,
+        MultiPolygon,
+        MultiPoint,
+        MultiLineString,
+    }:
+        try:
+            return wkt.loads(obj)
+        except Exception as e:
+            raise ValueError(f"Failed to decode geometry: {e}")
     return obj
 
 
@@ -108,49 +192,114 @@ class BaseModel(
 
     @property
     def __field_types__(self) -> Dict[str, Type]:
-        """Return a dictionary of field names and their types."""
+        """
+        Generate a flat dictionary of field names and their types, consistent with `to_dict()`.
+        Nested BaseModel fields are flattened, with conflicts raising a KeyError.
+        """
+        # Start extraction from the current class
+        return self._get_field_types(self.__class__)
+
+    @classmethod
+    def _get_field_types(cls, struct_cls: Type[msgspec.Struct]) -> Dict[str, Type]:
+        """
+        Recursively extract field types for a given `msgspec.Struct` class.
+
+        Args:
+            struct_cls (Type[msgspec.Struct]): The `msgspec.Struct` class to extract types from.
+
+        Returns:
+            Dict[str, Type]: A dictionary of field names and their resolved types.
+        """
         field_types = {}
-        for field in msgspec.structs.fields(self):
-            base_type = get_args(field.type)[0] if get_args(field.type) else field.type
-            if field.name in self.__defined_struct_fields__:
-                field_types[field.name] = base_type
+
+        for field in msgspec.structs.fields(struct_cls):
+            field_name = field.name
+
+            # Check if the field type is a Literal
+            if get_origin(field.type) is Literal:
+                # Extract the first literal value and determine its base type
+                literal_values = get_args(field.type)
+                field_type = type(literal_values[0]) if literal_values else str
+            else:
+                # For non-Literal types, use the existing logic
+                field_type = (
+                    get_args(field.type)[0] if get_args(field.type) else field.type
+                )
+
+            # Check if the field type is another BaseModel (nested struct)
+            if isinstance(field_type, type) and issubclass(field_type, BaseModel):
+                # Recursively fetch nested field types
+                nested_types = cls._get_field_types(field_type)
+                for nested_name, nested_type in nested_types.items():
+                    if nested_name in field_types:
+                        raise KeyError(
+                            f"Key conflict detected: '{nested_name}' already exists in the field types."
+                        )
+                    field_types[nested_name] = nested_type
+            else:
+                # Add non-nested fields directly
+                if field_name in field_types:
+                    raise KeyError(
+                        f"Key conflict detected: '{field_name}' already exists in the field types."
+                    )
+                field_types[field_name] = field_type
+
         return field_types
 
     @classmethod
     def null(cls) -> "BaseModel":
         """Create an instance with null values for each field."""
         null_values = {}
+        field_types = cls._get_field_types(cls)
+
         for field in msgspec.structs.fields(cls):
+            field_name = field.name
             field_type = field.type
-            origin_type = get_origin(
-                field_type
-            )  # Detect if it's a Literal, Union, etc.
 
-            if origin_type is Literal:
-                # Handle Literal by using str as the base type for string literals
-                literal_values = get_args(field_type)
-                base_type = type(literal_values[0]) if literal_values else str
-            else:
-                # For non-literal types, handle as usual
-                base_type = (
-                    get_args(field_type)[0] if get_args(field_type) else field_type
-                )
+            try:
+                base_type = field_types[field_name]
+            except KeyError:
+                base_type = field_type
 
-            # Determine the default null value based on base_type
             if base_type is str:
-                null_values[field.name] = ""
+                null_values[field_name] = ""
             elif base_type in {int, float}:
-                null_values[field.name] = np.nan
+                null_values[field_name] = np.nan
             elif base_type is bool:
-                null_values[field.name] = False
-            elif base_type == pd.Timestamp:
-                null_values[field.name] = pd.NaT
-            elif issubclass(base_type, (GeometryCollection, LineString, Point)):
-                null_values[field.name] = GeometryCollection()
-            elif issubclass(base_type, BaseModel):
-                null_values[field.name] = base_type.null()
+                null_values[field_name] = False
+            elif base_type in {datetime.datetime, pd.Timestamp}:
+                null_values[field_name] = pd.NaT
+            elif get_origin(base_type) is dict:
+                # Handle structured data types like bbox
+                key_type, value_type = get_args(base_type)
+                if key_type is str and value_type in {int, float}:
+                    null_values[field_name] = {
+                        key: np.nan for key in ["xmin", "ymin", "xmax", "ymax"]
+                    }
+                else:
+                    null_values[field_name] = {}
+            elif issubclass(
+                base_type,
+                (
+                    GeometryCollection,
+                    LineString,
+                    Point,
+                    Polygon,
+                    MultiPolygon,
+                    MultiPoint,
+                    MultiLineString,
+                ),
+            ):
+                null_values[field_name] = GeometryCollection()
+
+            elif isinstance(base_type, type) and issubclass(base_type, BaseModel):
+                # Initialize nested BaseModel with its null values
+                null_values[field_name] = base_type.null()
+
             else:
-                null_values[field.name] = None
+                raise TypeError(
+                    f"Unhandled field type '{base_type}' for field '{field_name}'. Add support for this type."
+                )
 
         return cls(**null_values)
 
@@ -167,14 +316,8 @@ class BaseModel(
         result = {}
 
         # Iterate over fields and their metadata
-        for field in msgspec.structs.fields(self):
-            field_name = field.name
+        for field_name in self.__defined_struct_fields__:
             field_value = getattr(self, field_name, None)
-            field_default = field.default
-
-            # Skip fields with default values
-            if field_value == field_default:
-                continue
 
             # Flatten nested BaseModel instances
             if isinstance(field_value, BaseModel):
@@ -209,35 +352,51 @@ class BaseModel(
         """Encode instance as JSON string."""
         return self.encode().decode()
 
-    def to_meta(self) -> Dict[str, Type]:
-        """Generate a dictionary with field types for metadata."""
-        field_types = {}
+    def to_meta(
+        self, mode: Literal["pandas", "geoparquet"] = "pandas"
+    ) -> Dict[str, str]:
+        """
+        Generate a dictionary mapping field names to their corresponding types.
+
+        Parameters:
+            mode (str): Either 'pandas' (default) or 'geoparquet'. Determines the type system to use.
+
+        Returns:
+            Dict[str, str]: A dictionary mapping field names to their respective types.
+
+        Raises:
+            KeyError: If duplicate keys are detected in nested fields.
+            ValueError: If the `mode` is not supported.
+        """
+        # Select the appropriate type map
+        if mode == "pandas":
+            type_map = PANDAS_TYPE_MAP
+        elif mode == "geoparquet":
+            type_map = GEOPARQUET_TYPE_MAP
+        else:
+            raise ValueError(
+                f"Unsupported mode '{mode}'. Use 'pandas' or 'geoparquet'."
+            )
+
+        meta = {}
         for field_name, field_type in self.__field_types__.items():
-            if field_type in {float, int, str, bool, pd.Timestamp}:
-                field_types[field_name] = field_type
-            elif issubclass(field_type, (GeometryCollection, LineString)):
-                field_types[field_name] = object
-            elif issubclass(field_type, BaseModel):
-                field_types[field_name] = object
-            else:
-                field_types[field_name] = object
-        return field_types
+            try:
+                # Map the type to the selected system
+                meta[field_name] = type_map.get(field_type, type_map[object])
+            except KeyError:
+                raise KeyError(
+                    f"Type '{field_type}' for field '{field_name}' is not supported in the {mode} type map."
+                )
+
+        return meta
 
     def empty_frame(self) -> "gpd.GeoDataFrame":
         """Create an empty GeoDataFrame with appropriate column types."""
-        column_types = {
-            col: (
-                float
-                if dtype in {float, int}
-                else "datetime64[ns]"
-                if dtype == pd.Timestamp
-                else object
-            )
-            for col, dtype in self.to_meta().items()
-        }
+        _meta = self.to_meta()
+
         empty_data = {
             col: pd.Series(dtype=col_type) if col_type != GeometryCollection() else []
-            for col, col_type in column_types.items()
+            for col, col_type in _meta.items()
         }
         return gpd.GeoDataFrame(empty_data, geometry="geometry", crs="EPSG:4326")
 
@@ -283,20 +442,30 @@ class Transect(BaseModel):
     @classmethod
     def example(cls):
         _EXAMPLE_VALUES = {
-            "transect_id": "T001",
-            "geometry": LineString([(34, 45), (44, 55)]),
-            "lon": 40.0,
-            "lat": 45.0,
-            "bearing": 90.0,
+            "transect_id": "cl32408s01tr00223948",
+            "geometry": LineString(
+                [
+                    [4.287529606158882, 52.106643659044614],
+                    [4.266728801968574, 52.11926398930266],
+                ]
+            ),
+            "lon": 4.277131,
+            "lat": 52.112953,
+            "bearing": 313.57275,
             "osm_coastline_is_closed": False,
-            "osm_coastline_length": 1000,
-            "utm_epsg": 32633,
-            "bbox": dict(xmin=34.0, ymin=44.0, xmax=45.0, ymax=55.0),
-            "quadkey": "023112",
-            "continent": "Europe",
-            "country": "Norway",
-            "common_country_name": "Norway",
-            "common_region_name": "Scandinavia",
+            "osm_coastline_length": 1014897,
+            "utm_epsg": 32631,
+            "bbox": {
+                "xmax": 4.287529606158882,
+                "xmin": 4.266728801968574,
+                "ymax": 52.11926398930266,
+                "ymin": 52.106643659044614,
+            },
+            "quadkey": "020202113000",
+            "continent": "EU",
+            "country": "NL",
+            "common_country_name": "Netherlands",
+            "common_region_name": "South Holland",
         }
         return cls(**_EXAMPLE_VALUES)
 
@@ -322,39 +491,20 @@ class TypologyTrainSample(BaseModel):
     def example(cls) -> "TypologyTrainSample":
         _EXAMPLE_VALUES = {
             "transect": Transect.example(),
-            "user": "example_user",
-            "uuid": "123e4567-e89b-12d3-a456-426614174000",
-            "datetime_created": datetime.datetime(2023, 1, 1, 12, 0),
-            "datetime_updated": datetime.datetime(2023, 1, 2, 12, 0),
-            "shore_type": "rocky_shore_platform_or_large_boulders",
-            "coastal_type": "cliffed_or_steep",
+            "user": "floris-calkoen",
+            "uuid": "3b984582ecd6",
+            "datetime_created": datetime.datetime(2024, 1, 9, 12, 0),
+            "datetime_updated": datetime.datetime(2024, 1, 11, 12, 0),
+            "shore_type": "sandy_gravel_or_small_boulder_sediments",
+            "coastal_type": "sediment_plain",
             "landform_type": "mainland_coast",
-            "is_built_environment": "false",
+            "is_built_environment": "true",
             "has_defense": "true",
             "is_challenging": False,
-            "comment": "Sample comment",
-            "link": "https://example.com",
+            "comment": "This is an example transect including a comment.",
+            "link": "https://example.com/link-to-google-street-view",
             "confidence": "high",
             "is_validated": True,
-        }
-        return cls(**_EXAMPLE_VALUES)
-
-
-class TypologyInferenceSample(BaseModel):
-    transect: Transect
-    pred_shore_type: ShoreType
-    pred_coastal_type: CoastalType
-    pred_has_defense: HasDefense
-    pred_is_built_environment: IsBuiltEnvironment
-
-    @classmethod
-    def example(cls) -> "TypologyInferenceSample":
-        _EXAMPLE_VALUES = {
-            "transect": Transect.example(),
-            "pred_shore_type": "rocky_shore_platform_or_large_boulders",
-            "pred_coastal_type": "cliffed_or_steep",
-            "pred_has_defense": "true",
-            "pred_is_built_environment": "false",
         }
         return cls(**_EXAMPLE_VALUES)
 
@@ -370,7 +520,26 @@ class TypologyTestSample(BaseModel):
     def example(cls) -> "TypologyTestSample":
         _EXAMPLE_VALUES = {
             "train_sample": TypologyTrainSample.example(),
-            "pred_shore_type": "rocky_shore_platform_or_large_boulders",
+            "pred_shore_type": "sandy_gravel_or_small_boulder_sediments",
+            "pred_coastal_type": "sediment_plain",
+            "pred_has_defense": "true",
+            "pred_is_built_environment": "false",
+        }
+        return cls(**_EXAMPLE_VALUES)
+
+
+class TypologyInferenceSample(BaseModel):
+    transect: Transect
+    pred_shore_type: ShoreType
+    pred_coastal_type: CoastalType
+    pred_has_defense: HasDefense
+    pred_is_built_environment: IsBuiltEnvironment
+
+    @classmethod
+    def example(cls) -> "TypologyInferenceSample":
+        _EXAMPLE_VALUES = {
+            "transect": Transect.example(),
+            "pred_shore_type": "sandy_gravel_or_small_boulder_sediments",
             "pred_coastal_type": "cliffed_or_steep",
             "pred_has_defense": "true",
             "pred_is_built_environment": "false",
@@ -386,6 +555,7 @@ ModelUnion = Union[
     TypologyInferenceSample,
 ]
 
+
 # Testing instantiation
 linestring = LineString([[45, 55], [34, 57]])
 bounds = linestring.bounds
@@ -393,16 +563,15 @@ bbox = {"minx": bounds[0], "miny": bounds[1], "maxx": bounds[2], "maxy": bounds[
 transect = Transect(
     transect_id="a",
     geometry=linestring,
-    bearing=40,
+    bearing=40.0,
     bbox=bbox,
 )
 
-transect.to_json()
 # NOTE: continue with TypologyTrainSample.null().to_frame()
 train_sample = TypologyTrainSample(
     transect=transect,
-    user="researcher_1",
-    uuid="123e4567-e89b-12d3-a456-426614174000",
+    user="floris-calkoen",
+    uuid="3b984582ecd6",
     datetime_created=datetime.datetime.now(),
     datetime_updated=datetime.datetime.now(),
     shore_type="sandy_gravel_or_small_boulder_sediments",
@@ -417,8 +586,17 @@ train_sample = TypologyTrainSample(
     link="https://example.com",
 )
 
+# nulls = Transect.null()
+TypologyTrainSample.null()
 train_sample.to_dict()
+train_sample.to_meta()
 TypologyTrainSample.example()
+schema = msgspec.json.schema(Transect, schema_hook=custom_schema_hook)
+import json
+import pathlib
+
+with (pathlib.Path.cwd() / "transect_schema.json").open("w") as f:
+    f.write(json.dumps(schema, indent=2))
 
 # Transect.null()
 TypologyTrainSample.null()

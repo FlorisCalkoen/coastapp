@@ -6,7 +6,7 @@ import pandas as pd
 import panel as pn
 
 from coastapp.crud import CRUDManager
-from coastapp.specification import Record, TypologyTrainSample
+from coastapp.schema import Record, TypologyTrainSample
 
 logger = logging.getLogger(__name__)
 
