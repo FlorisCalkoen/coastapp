@@ -6,7 +6,7 @@ import pandas as pd
 import panel as pn
 
 from coastapp.crud import CRUDManager
-from coastapp.schema import Record, TypologyTrainSample
+from coastapp.specification import Transect, TypologyTrainSample
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ class ClassificationManager(CRUDManager):
         self.classification_schema_manager = classification_schema_manager
         self.spatial_query_app = spatial_query_app
         self.is_challenging = False
-        self.record = TypologyTrainSample.null_dict().copy()
+        self.record = TypologyTrainSample.null()
 
         # Panel widgets
         self.save_button = pn.widgets.Button(
@@ -95,6 +95,7 @@ class ClassificationManager(CRUDManager):
         """Load transect record data into the classification widgets."""
         # Update the classification widgets based on the fetched record
         # record = self.spatial_query_app.labelled_transect_manager.get_current_record()
+        record = record.to_dict()
         self.spatial_query_app.current_transect_id = record["transect_id"]
         self.classification_schema_manager.attribute_dropdowns[
             "shore_type"
@@ -117,7 +118,7 @@ class ClassificationManager(CRUDManager):
 
     def reset_record(self):
         """Reset the record to the default schema."""
-        self.record = TypologyTrainSample.null_dict().copy()
+        self.record = TypologyTrainSample.null()
 
     def load_previous_transect(self, event=None):
         """Callback to load the previous transect."""
@@ -166,7 +167,7 @@ class ClassificationManager(CRUDManager):
         time = datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%S")
         return f"{user}_{transect_id}_{time}.json"
 
-    def collect_classification_data(self) -> dict:
+    def collect_classification_data(self) -> TypologyTrainSample:
         """Collect data from the user manager, classification schema, and spatial query app."""
         user = self.user_manager.selected_user.value
 
@@ -188,7 +189,7 @@ class ClassificationManager(CRUDManager):
         ].value
 
         # Collect spatial data from the GeoDataFrame in spatial_query_app
-        current_transect = self.spatial_query_app.get_selected_geometry()
+        current_transect = self.spatial_query_app.get_selected_geometry().to_dict()
         transect_id = current_transect.get("transect_id")
         lon = current_transect.get("lon")
         lat = current_transect.get("lat")
@@ -201,41 +202,43 @@ class ClassificationManager(CRUDManager):
             return None
 
         # Determine time values
-        current_datetime = datetime.datetime.now(datetime.UTC).isoformat()
+        current_datetime = datetime.datetime.now(datetime.UTC)
 
         # NOTE: you cannot use self.record.get("datetime_created", current_datetime)
         # because then you will find the default value, which is an empty string. See
         # default schema. So, if datetime_created is an empty string, set it to current_datetime
         if pd.isna(datetime_created):
             datetime_created = current_datetime
+        else:
+            datetime_created = pd.Timestamp(datetime_created)
 
         datetime_updated = current_datetime
 
         universal_unique_id = uuid.uuid4().hex[:12]
         # Collect data locally before updating self.record
-        record = {
-            "uuid": universal_unique_id,
-            "user": user,
-            "transect_id": transect_id,
-            "lon": lon,
-            "lat": lat,
-            "geometry": geometry.wkt,  # Store WKT format
-            "datetime_created": datetime_created,
-            "datetime_updated": datetime_updated,
-            "shore_type": shore_type,
-            "coastal_type": coastal_type,
-            "landform_type": landform_type,
-            "is_built_environment": is_built_environment,
-            "has_defense": has_defense,
-            "is_challenging": self.is_challenging_button.value,
-            "comment": self.comment_input.value,
-            "link": self.link_input.value,
-            "confidence": self.confidence_slider.value,
-            "is_validated": self.is_validated_button.value,
-        }
 
-        # Update self.record only after all data is collected
-        self.record.update(record)
+        transect = Transect(
+            transect_id=transect_id, geometry=geometry, lon=lon, lat=lat
+        )
+        record = TypologyTrainSample(
+            transect=transect,
+            user=user,
+            uuid=universal_unique_id,
+            datetime_created=datetime_created,
+            datetime_updated=datetime_updated,
+            shore_type=shore_type,
+            coastal_type=coastal_type,
+            landform_type=landform_type,
+            is_built_environment=is_built_environment,
+            has_defense=has_defense,
+            is_challenging=self.is_challenging_button.value,
+            comment=self.comment_input.value,
+            link=self.link_input.value,
+            confidence=self.confidence_slider.value,
+            is_validated=self.is_validated_button.value,
+        )
+
+        self.record = record
         return self.record
 
     def validate_record(self, record: dict) -> bool:
@@ -292,23 +295,17 @@ class ClassificationManager(CRUDManager):
     def save_classification(self, event=None):
         """Save the classification data to cloud storage."""
         record = self.collect_classification_data()
-        record = Record.from_data(record)
 
-        if not record:
-            return
-
-        if not self.validate_record(record.to_dict()):
-            return
+        if not record.validate():
+            raise ValueError("Record is not valid")
 
         # If labelled transects are in memory, update the in-memory dataframe
         if self.spatial_query_app.labelled_transect_manager.df is not None:
-            self.spatial_query_app.labelled_transect_manager.add_record(
-                record.to_frame()
-            )
+            self.spatial_query_app.labelled_transect_manager.add_record(record)
 
         # Save the record to cloud storage
-        self.create_record(record.to_record())
-        self.save_feedback_message.object = f"**Success:** Classification saved successfully. File: {self.generate_filename(record)}"
+        self.create_record(record)
+        self.save_feedback_message.object = f"**Success:** Classification saved successfully. File: {self.generate_filename(record.to_dict())}"
         self.save_button.disabled = True  # Disable save after successful save
 
         # Reset the dropdowns after saving

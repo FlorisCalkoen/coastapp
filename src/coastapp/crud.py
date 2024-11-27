@@ -4,6 +4,10 @@ from abc import ABC, abstractmethod
 
 import fsspec
 
+from coastapp.libs import write_record
+from coastapp.specification import TypologyTrainSample
+from coastapp.utils import name_typology_record
+
 logger = logging.getLogger(__name__)
 
 
@@ -49,23 +53,17 @@ class CRUDManager(ABC):
         """Constructs the signed HTTPS URL with the SAS token."""
         return f"{self.base_url}/{record_name}?{self.storage_options['sas_token']}"
 
-    def create_record(self, record: dict):
+    def create_record(self, record: TypologyTrainSample):
         """Saves a record to the Azure storage backend using the az:// protocol."""
-        record_name = self.generate_filename(record)
+        if isinstance(record, TypologyTrainSample):
+            record_name = name_typology_record(record)
+        else:
+            raise ValueError("Invalid record type.")
         full_path = self._get_storage_path(record_name)
-        record_json = json.dumps(record, indent=4)
+        fs = fsspec.filesystem("az", **self.storage_options)
+        write_record(record, full_path, fs)
 
-        with fsspec.open(full_path, mode="w", **self.storage_options) as f:
-            f.write(record_json)
-        logger.info(f"Saved record: {full_path}")
-
-    # def create_record(self, record: dict):
-    #     """Creates a new record and saves it."""
-    #     datetime_created = datetime.datetime.now(datetime.UTC).isoformat()
-    #     record["datetime_created"] = datetime_created
-    #     self.save_record(record)
-
-    def read_record(self, record_name: str) -> dict:
+    def read_json(self, record_name: str) -> dict:
         """Reads a record from the Azure storage backend using HTTPS."""
         # Open the file using https to avoid issues in Panel apps
         signed_url = self._get_signed_url(record_name)
@@ -75,7 +73,7 @@ class CRUDManager(ABC):
 
     def update_record(self, record_name: str, updated_data: dict):
         """Updates an existing record in the Azure storage backend using the az:// protocol."""
-        record = self.read_record(record_name)
+        record = self.read_json(record_name)
         record.update(updated_data)
         self.create_record(record)
 

@@ -26,6 +26,7 @@ class UserManager(CRUDManager):
         self.selected_user = UserName()
 
         # Load existing users
+
         self.existing_users = self.load_existing_users()
 
         # Panel widgets

@@ -39,6 +39,7 @@ class FeatureManager:
         Update the Google Maps URL link based on the current transect's coordinates.
         """
         selected_geometry = self.spatial_query_app.get_selected_geometry()
+        selected_geometry = selected_geometry.to_frame().iloc[0]
         if selected_geometry["lon"] and selected_geometry["lat"]:
             lon, lat = selected_geometry["lon"], selected_geometry["lat"]
             zoom = 18  # You can adjust this zoom level if necessary

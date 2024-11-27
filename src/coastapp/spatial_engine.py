@@ -16,7 +16,7 @@ from shapely.geometry import Point
 from shapely.wkb import loads
 
 from coastapp.enums import StorageBackend
-from coastapp.schema import Record, Transect
+from coastapp.specification import BaseModel, Transect
 from coastapp.style_config import COAST_TYPE_COLORS, SHORE_TYPE_MARKERS
 from coastapp.utils import buffer_geometries_in_utm, create_offset_rectangle
 
@@ -192,9 +192,7 @@ class SpatialQueryEngine:
 
 
 class SpatialQueryApp(param.Parameterized):
-    current_transect = param.ClassSelector(
-        class_=gpd.GeoDataFrame, doc="Current transect as a GeoDataFrame"
-    )
+    current_transect = param.ClassSelector(class_=BaseModel, doc="Current transect")
     show_labelled_transects = param.Boolean(
         default=False, doc="Show/Hide Labelled Transects"
     )
@@ -226,7 +224,7 @@ class SpatialQueryApp(param.Parameterized):
 
         # Set the default transect without triggering a view update
 
-        self.default_geometry = Transect.from_defaults()
+        self.default_geometry = Transect.example()
         self.set_transect(self.default_geometry, update=False)
 
         # Initialize the UI components (view initialized first)
@@ -290,7 +288,9 @@ class SpatialQueryApp(param.Parameterized):
         """Initializes the HoloViews pane using the current transect."""
         return pn.pane.HoloViews(
             (
-                self.plot_transect(self.current_transect) * self.tiles * self.point_draw
+                self.plot_transect(self.current_transect.to_frame())
+                * self.tiles
+                * self.point_draw
             ).opts(active_tools=["wheel_zoom"])
         )
 
@@ -306,6 +306,9 @@ class SpatialQueryApp(param.Parameterized):
 
     def plot_transect(self, transect):
         """Plot the given transect with polygons and paths."""
+        if isinstance(transect, BaseModel):
+            transect = transect.to_frame()
+
         coords = list(transect.geometry.item().coords)
         landward_point, seaward_point = coords[0], coords[-1]
         # NOTE: I don't think showing the origin point is necessary
@@ -342,11 +345,8 @@ class SpatialQueryApp(param.Parameterized):
     def set_transect(self, data, update=True):
         """Sets the current transect and optionally updates the view."""
 
-        if isinstance(data, Transect):
-            data = data.to_frame()
-
         if isinstance(data, dict):
-            data = Record.from_data(data).to_frame()
+            data = BaseModel().from_dict(data)
 
         self.current_transect = data
 
@@ -357,7 +357,7 @@ class SpatialQueryApp(param.Parameterized):
     def _get_random_transect(self, event):
         """Handle the button click to get a random transect."""
         transect = self.spatial_engine.get_random_transect()
-        transect = Record.from_data(transect)
+        transect = Transect.from_frame(transect)
         self.set_transect(transect)
 
     def _get_random_test_sample(self, event):
@@ -367,7 +367,7 @@ class SpatialQueryApp(param.Parameterized):
         if self.only_use_incorrect:
             test_df = test_df[
                 (test_df["shore_type"] != test_df["pred_shore_type"])
-                | (test_df["coastal_type"] != test_df["pred_coast_type"])
+                | (test_df["coastal_type"] != test_df["pred_coastal_type"])
             ]
         test_df = test_df[~test_df["uuid"].isin(self.seen_uuids)]
         sample = test_df.sample(1)
@@ -504,18 +504,18 @@ class SpatialQueryApp(param.Parameterized):
     def plot_test_prediction(self):
         """Plot the test predictions layer with multiple points."""
 
-        df = self.current_transect.copy()
+        df = self.current_transect.to_frame()
         if "pred_shore_type" in df.columns:
-            df["coast_color"] = df["pred_coast_type"].map(self.coast_type_colors)
+            df["coast_color"] = df["pred_coastal_type"].map(self.coast_type_colors)
             df["shore_marker"] = df["pred_shore_type"].map(self.shore_type_markers)
-            pred_coast_type = df["pred_coast_type"].item()
+            pred_coast_type = df["pred_coastal_type"].item()
             pred_shore_type = df["pred_shore_type"].item()
 
             df = df.assign(geometry=gpd.GeoSeries.from_xy(df.lon, df.lat, crs=4326))[
                 [
                     "geometry",
                     "pred_shore_type",
-                    "pred_coast_type",
+                    "pred_coastal_type",
                     "coast_color",
                     "shore_marker",
                 ]
@@ -529,7 +529,7 @@ class SpatialQueryApp(param.Parameterized):
                 vdims=[
                     "coast_color",
                     "pred_shore_type",
-                    "pred_coast_type",
+                    "pred_coastal_type",
                     "shore_marker",
                 ],
                 label=f"Shore type: {pred_shore_type} \nCoastal type: {pred_coast_type}",
@@ -558,14 +558,14 @@ class SpatialQueryApp(param.Parameterized):
         if self.only_use_incorrect:
             df = df[
                 (df["shore_type"] != df["pred_shore_type"])
-                | (df["coastal_type"] != df["pred_coast_type"])
+                | (df["coastal_type"] != df["pred_coastal_type"])
             ]
 
         df = df[
             [
                 "geometry",
                 "pred_shore_type",
-                "pred_coast_type",
+                "pred_coastal_type",
                 "coast_color",
                 "shore_marker",
             ]
@@ -576,7 +576,7 @@ class SpatialQueryApp(param.Parameterized):
             vdims=[
                 "coast_color",
                 "pred_shore_type",
-                "pred_coast_type",
+                "pred_coastal_type",
                 "shore_marker",
             ],  # Values used for hover info and styling
         ).opts(
@@ -589,7 +589,7 @@ class SpatialQueryApp(param.Parameterized):
 
     def get_selected_geometry(self):
         """Returns the currently selected transect's geometry and metadata."""
-        return self.current_transect.iloc[0].to_dict()
+        return self.current_transect
 
     def main_widget(self):
         """Returns the pane representing the current transect view and toggle button."""

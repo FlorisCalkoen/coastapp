@@ -45,7 +45,7 @@ class ClassificationSchemaManager(CRUDManager):
     def load_schema(self) -> dict:
         """Load the classification schema from Azure storage using the read_record method."""
         try:
-            schema_data = self.read_record(self.generate_filename())
+            schema_data = self.read_json(self.generate_filename())
             print("Schema successfully loaded from cloud.")
             return schema_data
         except Exception as e:

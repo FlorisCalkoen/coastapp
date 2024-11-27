@@ -1,14 +1,16 @@
 import datetime
-import json
 import logging
 import os
 import uuid
 from copy import deepcopy
+from typing import Type
 
 import dotenv
 import fsspec
+import msgspec
 
 from coastapp.crud import CRUDManager
+from coastapp.specification import BaseModel, Transect, TypologyTrainSample
 
 logger = logging.getLogger(__name__)
 
@@ -25,12 +27,13 @@ class Renamer(CRUDManager):
     @property
     def get_prefix(self) -> str:
         """Returns the base prefix for the current implementation."""
-        return "labels3"
+        return "labels"
 
-    def generate_filename(self, record: dict) -> str:
+    def generate_filename(self, record: BaseModel) -> str:
         """
         Generates the filename based on user, transect_id, and the record's timestamp.
         """
+        record = record.to_dict()
         user = record["user"]
         transect_id = record["transect_id"]
         timestamp = record.get(
@@ -158,7 +161,7 @@ class Renamer(CRUDManager):
             record_name = file.split("/")[-1]
             try:
                 # Read the original record and append it to the list
-                record = self.read_record(record_name)
+                record = self.read_json(record_name)
                 all_records.append(record)
             except Exception as e:
                 logger.error(f"Failed to read record {record_name}: {e}", exc_info=True)
@@ -231,7 +234,7 @@ class Renamer(CRUDManager):
             record_name = file.split("/")[-1]
             try:
                 # Read the original record
-                record = self.read_record(record_name)
+                record = self.read_json(record_name)
 
                 # Generate the updated record
                 updated_record = self.rename_keys_and_values(
@@ -286,7 +289,7 @@ class Renamer(CRUDManager):
             record_name = file.split("/")[-1]
             try:
                 # Read the original record and append it to the list
-                record = self.read_record(record_name)
+                record = self.read_json(record_name)
                 all_records.append(record)
             except Exception as e:
                 logger.error(f"Failed to read record {record_name}: {e}", exc_info=True)
@@ -365,7 +368,7 @@ class Renamer(CRUDManager):
             record_name = file.split("/")[-1]
             try:
                 # Read the original record and append it to the list
-                record = self.read_record(record_name)
+                record = self.read_json(record_name)
                 all_records.append(record)
             except Exception as e:
                 logger.error(f"Failed to read record {record_name}: {e}", exc_info=True)
@@ -435,7 +438,80 @@ class Renamer(CRUDManager):
             except Exception as e:
                 logger.error(f"Failed to save record {record_name}: {e}", exc_info=True)
 
-    def save_record_with_prefix(self, record: dict, record_name: str, prefix: str):
+    def process_into_typed_classes(self, new_prefix: str | None = None):
+        """
+        Reads all records from cloud storage, filters the latest record per user and transect_id,
+        and saves the filtered records back to cloud storage.
+        """
+
+        def split_fields(record: dict, class_: Type[msgspec.Struct]) -> dict:
+            """
+            Utility to split a dictionary into fields for a specific class based on its annotations.
+            """
+            return {
+                key: value
+                for key, value in record.items()
+                if key in class_.__annotations__
+            }
+
+        def parse_nested_record(record: dict) -> TypologyTrainSample:
+            """
+            Generic parsing function for nested records.
+            """
+            # Extract Transect fields
+            transect_fields = split_fields(record, Transect)
+            transect = Transect(**transect_fields)
+
+            # Extract TypologyTrainSample fields
+            typology_fields = split_fields(record, TypologyTrainSample)
+            return TypologyTrainSample(transect=transect, **typology_fields)
+
+        # File storage and prefix setup
+        prefix_to_use = new_prefix if new_prefix else self.get_prefix
+        fs = fsspec.filesystem("az", **self.storage_options)
+
+        # Load all records from cloud storage
+        labelled_files = fs.glob(f"{self.base_uri}/*.json")
+        all_records = []
+
+        for file in labelled_files:
+            record_name = file.split("/")[-1]
+            try:
+                # Read the original record and append it to the list
+
+                record = self.read_json(record_name)
+
+                record = parse_nested_record(record)
+
+                if not record.landform_type:
+                    record.landform_type = "N/A"
+
+                if record.landform_type == "enh:headland":
+                    record.landform_type = "headland"
+                if record.landform_type == "enh:tombolo":
+                    record.landform_type = "tombolo"
+                if record.landform_type == "enh:bay":
+                    record.landform_type = "bay"
+
+                record.validate()
+                all_records.append(record)
+
+            except Exception as e:
+                logger.error(f"Failed to read record {record_name}: {e}", exc_info=True)
+
+        # ve the filtered records back to cloud storage
+        for record in all_records:
+            try:
+                record_name = self.generate_filename(record)
+
+                # Save the filtered record with the correct prefix
+                self.save_record_with_prefix(record, record_name, prefix_to_use)
+                logger.info(f"Record {record_name} saved successfully.")
+
+            except Exception as e:
+                logger.error(f"Failed to save record {record_name}: {e}", exc_info=True)
+
+    def save_record_with_prefix(self, record: BaseModel, record_name: str, prefix: str):
         """
         Saves a record under a specified prefix.
         """
@@ -444,8 +520,9 @@ class Renamer(CRUDManager):
 
         try:
             # Save the record using the az:// protocol
-            record_json = json.dumps(record, indent=4)
             with fsspec.open(full_path, mode="w", **self.storage_options) as f:
+                record.validate()
+                record_json = record.to_json()
                 f.write(record_json)
             logger.info(f"Saved record: {full_path}")
         except Exception as e:
@@ -488,4 +565,4 @@ if __name__ == "__main__":
     #     key_mapping=key_mapping, value_mapping=value_mapping, new_prefix="labels"
     # )
 
-    manager.process_add_confidence_level_and_validation_flag(new_prefix="labels")
+    manager.process_into_typed_classes(new_prefix="labels4")

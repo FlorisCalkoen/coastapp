@@ -1,3 +1,4 @@
+import datetime
 import re
 import unicodedata
 from typing import Literal
@@ -5,6 +6,8 @@ from typing import Literal
 import fsspec
 import geopandas as gpd
 from shapely.geometry import LineString, Polygon, base, box
+
+from coastapp.specification import TypologyTrainSample
 
 
 def extract_spatial_extents(base_path, storage_options=None):
@@ -208,3 +211,23 @@ def format_str_for_display(input_str: str | None) -> str:
     formatted_str = formatted_str.capitalize()
 
     return formatted_str
+
+
+def name_typology_record(record: TypologyTrainSample) -> str:
+    """
+    Generates the filename based on user, transect_id, and the record's timestamp.
+    """
+    user = record.user
+    transect_id = record.transect.transect_id
+    timestamp = (
+        record.datetime_created or datetime.datetime.now(datetime.UTC).isoformat()
+    )
+
+    # Ensure the timestamp is a datetime object, if it's a string convert it
+    if isinstance(timestamp, str):
+        timestamp = datetime.datetime.fromisoformat(timestamp)
+
+    # Format the timestamp to match the format you want (ISO format, without special characters)
+    formatted_timestamp = timestamp.strftime("%Y%m%dT%H%M%S")
+
+    return f"{user}_{transect_id}_{formatted_timestamp}.json"

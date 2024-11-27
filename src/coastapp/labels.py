@@ -7,8 +7,9 @@ import pandas as pd
 import panel as pn
 
 from coastapp.crud import CRUDManager
-from coastapp.schema import TypologyTrainSample
+from coastapp.specification import BaseModel, TypologyTrainSample
 from coastapp.style_config import COAST_TYPE_COLORS, SHORE_TYPE_MARKERS
+from coastapp.libs import read_records_to_pandas
 
 logger = logging.getLogger(__name__)
 
@@ -78,20 +79,8 @@ class LabelledTransectManager(CRUDManager):
 
     def load(self) -> gpd.GeoDataFrame:
         """Load all labelled transects from storage into a GeoPandas dataframe."""
-        fs = fsspec.filesystem("az", **self.storage_options)
-        labelled_files = fs.glob(f"{self.base_uri}/*.json")
-        all_records = []
-        for file in labelled_files:
-            try:
-                record = self.read_record(file.split("/")[-1])
-                all_records.append(TypologyTrainSample.from_dict(record).to_frame())
-            except Exception as e:
-                logger.warning(f"Failed to load record from {file}: {e}")
-
-        if all_records:
-            self._df = pd.concat(all_records)
-        else:
-            self._df = TypologyTrainSample.empty_frame()
+        container = f"{self.base_uri}/*.json"
+        self._df = read_records_to_pandas(BaseModel, container, self.storage_options)
         return self._df
 
     def reload(self) -> gpd.GeoDataFrame:
@@ -123,7 +112,7 @@ class LabelledTransectManager(CRUDManager):
         _test_df = _test_df.dropna(subset="user").reset_index(drop=True)
 
         # Add color and symbol mapping to the dataframe
-        _test_df["coast_color"] = _test_df["pred_coast_type"].map(
+        _test_df["coast_color"] = _test_df["pred_coastal_type"].map(
             self.coast_type_colors
         )
         _test_df["shore_marker"] = _test_df["pred_shore_type"].map(
@@ -133,8 +122,9 @@ class LabelledTransectManager(CRUDManager):
         self._test_df = _test_df
         return self._test_df
 
-    def add_record(self, new_record_df: gpd.GeoDataFrame) -> None:
+    def add_record(self, new_record_df: BaseModel) -> None:
         """Add a new record to the in-memory dataframe and update the user_df."""
+        new_record_df = new_record_df.to_frame()
         try:
             self._df = pd.concat(
                 [self.df, new_record_df], ignore_index=True
@@ -163,7 +153,7 @@ class LabelledTransectManager(CRUDManager):
             )
             return None
 
-    def get_previous_record(self) -> dict | None:
+    def get_previous_record(self) -> BaseModel | None:
         """Get the previous record for the current user based on the current index."""
         current_index = self.user_df.index[self.user_df["uuid"] == self.current_uuid][0]
         previous_index = current_index - 1
@@ -173,7 +163,7 @@ class LabelledTransectManager(CRUDManager):
         previous_record = self.user_df.iloc[previous_index]
         self._current_uuid = previous_record.uuid.item()
         try:
-            record = TypologyTrainSample.from_frame(previous_record).to_dict()
+            record = TypologyTrainSample.from_frame(previous_record)
             return record
         except Exception:
             logger.warning(
@@ -181,13 +171,13 @@ class LabelledTransectManager(CRUDManager):
             )
             return None
 
-    def fetch_record_by_uuid(self, uuid) -> dict | None:
+    def fetch_record_by_uuid(self, uuid) -> BaseModel | None:
         """Fetches record by UUID, loading data if not already loaded."""
         # Search for UUID in the loaded data
         record = self.df[self.df["uuid"] == uuid]
 
         if not record.empty:
-            return TypologyTrainSample.from_frame(record).to_dict()
+            return TypologyTrainSample.from_frame(record)
 
         return None
 

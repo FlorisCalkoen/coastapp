@@ -1,5 +1,7 @@
 import datetime
 import enum
+import re
+import unicodedata
 import uuid
 from abc import abstractmethod
 from typing import (
@@ -18,6 +20,7 @@ import geopandas as gpd
 import msgspec
 import numpy as np
 import pandas as pd
+from msgspec import field
 from shapely import wkt
 from shapely.geometry import (
     GeometryCollection,
@@ -48,13 +51,20 @@ CoastalType = Literal[
     "engineered_structures",
 ]
 LandformType = Literal[
-    "mainland_coast",
-    "estuary",
     "barrier_island",
+    "barrier_system",
     "barrier",
+    "bay",
+    "coral_island",
+    "delta",
+    "estuary",
+    "headland",
+    "lagoon",
+    "mainland_coast",
     "pocket_beach",
     "spit",
-    "enh:bay",
+    "tombolo",
+    "N/A",
 ]
 IsBuiltEnvironment = Literal["true", "false"]
 HasDefense = Literal["true", "false"]
@@ -174,7 +184,7 @@ def decode_custom(type, obj):
 class BaseModel(
     msgspec.Struct,
     kw_only=True,  # Set all fields as keyword-only to avoid ordering issues
-    tag=True,
+    tag=str.lower,
     tag_field="type",
     dict=True,
     omit_defaults=True,
@@ -212,18 +222,18 @@ class BaseModel(
         """
         field_types = {}
 
-        for field in msgspec.structs.fields(struct_cls):
-            field_name = field.name
+        for field_ in msgspec.structs.fields(struct_cls):
+            field_name = field_.name
 
             # Check if the field type is a Literal
-            if get_origin(field.type) is Literal:
+            if get_origin(field_.type) is Literal:
                 # Extract the first literal value and determine its base type
-                literal_values = get_args(field.type)
+                literal_values = get_args(field_.type)
                 field_type = type(literal_values[0]) if literal_values else str
             else:
                 # For non-Literal types, use the existing logic
                 field_type = (
-                    get_args(field.type)[0] if get_args(field.type) else field.type
+                    get_args(field_.type)[0] if get_args(field_.type) else field_.type
                 )
 
             # Check if the field type is another BaseModel (nested struct)
@@ -252,9 +262,9 @@ class BaseModel(
         null_values = {}
         field_types = cls._get_field_types(cls)
 
-        for field in msgspec.structs.fields(cls):
-            field_name = field.name
-            field_type = field.type
+        for field_ in msgspec.structs.fields(cls):
+            field_name = field_.name
+            field_type = field_.type
 
             try:
                 base_type = field_types[field_name]
@@ -308,11 +318,23 @@ class BaseModel(
         """Create an example instance with predefined example values."""
         ...
 
-    def to_dict(self) -> dict:
+    def to_dict(self, flatten: bool = True) -> dict:
         """
-        Convert instance to a flat dictionary format, excluding fields with values equal to their default values.
-        Nested BaseModel instances are flattened. Raises KeyError for key conflicts.
+        Convert instance to a dictionary format.
+
+        Args:
+            flatten (bool): If True, returns a flat dictionary by merging nested BaseModel instances.
+                            If False, returns a hierarchical dictionary with nested structures intact.
+
+        Returns:
+            dict: The instance represented as a dictionary.
+
+        Raises:
+            KeyError: If key conflicts occur during flattening.
         """
+        if not flatten:
+            return msgspec.structs.asdict(self)
+
         result = {}
 
         # Iterate over fields and their metadata
@@ -321,13 +343,16 @@ class BaseModel(
 
             # Flatten nested BaseModel instances
             if isinstance(field_value, BaseModel):
-                nested_dict = field_value.to_dict()  # Recursively call to_dict()
+                nested_dict = field_value.to_dict(
+                    flatten=True
+                )  # Recursively call to_dict()
 
                 # Check for key conflicts and raise KeyError if any conflict is found
-                for nested_key in nested_dict:
+                for nested_key, nested_value in nested_dict.items():
                     if nested_key in result:
                         raise KeyError(
-                            f"Key conflict detected: '{nested_key}' already exists in the parent dictionary."
+                            f"Key conflict detected: '{nested_key}' already exists in the parent dictionary "
+                            f"while flattening field '{field_name}'."
                         )
 
                 # Merge nested dictionary into the parent
@@ -351,6 +376,25 @@ class BaseModel(
     def to_json(self) -> str:
         """Encode instance as JSON string."""
         return self.encode().decode()
+
+    def validate(self) -> bool:
+        """
+        Validate the current instance against its schema using JSON serialization.
+
+        Returns:
+            bool: True if the instance is valid, otherwise False.
+        """
+        try:
+            # Serialize the instance to JSON and attempt to decode it back
+            json_data = self.to_json()
+            self.decode(json_data.encode())
+            return True
+        except msgspec.ValidationError as e:
+            print(f"Validation Error: {e}")
+            return False
+        except Exception as e:
+            print(f"Unexpected Error: {e}")
+            return False
 
     def to_meta(
         self, mode: Literal["pandas", "geoparquet"] = "pandas"
@@ -390,20 +434,33 @@ class BaseModel(
 
         return meta
 
-    def empty_frame(self) -> "gpd.GeoDataFrame":
-        """Create an empty GeoDataFrame with appropriate column types."""
+    def to_frame(self) -> pd.DataFrame:
+        """
+        Convert instance to a DataFrame format.
+        """
+        data = self.to_dict()
+        if "geometry" in data:
+            return gpd.GeoDataFrame([data], geometry="geometry", crs="EPSG:4326")
+        return pd.DataFrame([data])
+
+    def empty_frame(self) -> pd.DataFrame:
+        """
+        Create an empty DataFrame with appropriate column types.
+        """
         _meta = self.to_meta()
 
-        empty_data = {
-            col: pd.Series(dtype=col_type) if col_type != GeometryCollection() else []
-            for col, col_type in _meta.items()
-        }
-        return gpd.GeoDataFrame(empty_data, geometry="geometry", crs="EPSG:4326")
+        if "geometry" in _meta:
+            empty_data = {
+                col: pd.Series(dtype=col_type)
+                if col_type != GeometryCollection()
+                else []
+                for col, col_type in _meta.items()
+            }
+            return gpd.GeoDataFrame(empty_data, geometry="geometry", crs="EPSG:4326")
 
-    def to_frame(self) -> "gpd.GeoDataFrame":
-        """Convert instance to GeoDataFrame format."""
-        data = self.to_dict()
-        return gpd.GeoDataFrame([data], geometry="geometry", crs="EPSG:4326")
+        # For non-geometric data, return a regular DataFrame
+        empty_data = {col: pd.Series(dtype=col_type) for col, col_type in _meta.items()}
+        return pd.DataFrame(empty_data)
 
     @classmethod
     def from_json(cls, json_str: str) -> "BaseModel":
@@ -412,8 +469,47 @@ class BaseModel(
         return decoder.decode(json_str.encode())
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "BaseModel":
-        """Create an instance from a dictionary."""
+    def from_dict(cls, data: Dict[str, Any], flatten: bool = True) -> "BaseModel":
+        """
+        Create an instance from a dictionary, handling both flat and nested structures.
+
+        Args:
+            data (Dict[str, Any]): The input data dictionary.
+            flatten (bool): Whether the dictionary is in flat format.
+
+        Returns:
+            BaseModel: The instantiated object.
+        """
+
+        def split_fields(record: dict, class_: Type[msgspec.Struct]) -> dict:
+            """
+            Utility to split a dictionary into fields specific to a class based on its annotations.
+            """
+            return {
+                key: value
+                for key, value in record.items()
+                if key in class_.__annotations__
+            }
+
+        # If the dictionary is flattened, split and reconstruct nested fields
+        if flatten:
+            nested_data = {}
+            for field in msgspec.structs.fields(cls):
+                field_name = field.name
+                field_type = field.type
+
+                # Check if the field type is a nested BaseModel
+                if isinstance(field_type, type) and issubclass(field_type, BaseModel):
+                    # Extract relevant fields for the nested model
+                    nested_fields = split_fields(data, field_type)
+                    # Create an instance of the nested model
+                    nested_data[field_name] = field_type.from_dict(nested_fields)
+                elif field_name in data:
+                    # For non-nested fields, directly add to the data
+                    nested_data[field_name] = data[field_name]
+            return cls(**nested_data)
+
+        # If the dictionary is not flattened, pass it directly to the constructor
         return cls(**data)
 
     @classmethod
@@ -421,6 +517,31 @@ class BaseModel(
         """Create an instance from a GeoDataFrame row."""
         data = frame.iloc[0].to_dict()
         return cls.from_dict(data)
+
+
+class User(BaseModel):
+    """Structured data type for user management."""
+
+    name: str
+    user_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    datetime_created: str = field(
+        default_factory=lambda: datetime.datetime.now(datetime.UTC).isoformat()
+    )
+    formatted_name: str = ""  # Will be computed in `__post_init__`
+
+    def __post_init__(self):
+        """Automatically format the name upon initialization."""
+        self.formatted_name = self._format_name(self.name)
+
+    @staticmethod
+    def _format_name(name: str) -> str:
+        """Format user name into a normalized string."""
+        name = unicodedata.normalize("NFD", name)
+        name = "".join(char for char in name if unicodedata.category(char) != "Mn")
+        name = name.lower()
+        name = re.sub(r"\s+", "-", name)
+        name = re.sub(r"[^a-z0-9\-]", "", name)
+        return name
 
 
 class Transect(BaseModel):
@@ -473,7 +594,7 @@ class Transect(BaseModel):
 class TypologyTrainSample(BaseModel):
     transect: Transect
     user: str
-    uuid: str
+    uuid: str  # universal_unique_id = uuid.uuid4().hex[:12]
     datetime_created: datetime.datetime
     datetime_updated: datetime.datetime
     shore_type: ShoreType
@@ -549,6 +670,7 @@ class TypologyInferenceSample(BaseModel):
 
 # Union of all possible classes for decoding
 ModelUnion = Union[
+    User,
     Transect,
     TypologyTrainSample,
     TypologyTestSample,
