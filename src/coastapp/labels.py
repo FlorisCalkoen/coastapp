@@ -7,9 +7,9 @@ import pandas as pd
 import panel as pn
 
 from coastapp.crud import CRUDManager
+from coastapp.libs import read_records_to_pandas
 from coastapp.specification import BaseModel, TypologyTrainSample
 from coastapp.style_config import COAST_TYPE_COLORS, SHORE_TYPE_MARKERS
-from coastapp.libs import read_records_to_pandas
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +74,7 @@ class LabelledTransectManager(CRUDManager):
     def current_uuid(self) -> str:
         """Get the current index for navigation."""
         if self._current_uuid is None:
-            self._current_uuid = self.user_df.iloc[-1].uuid.item()
+            self._current_uuid = self.user_df.iloc[-1].uuid
         return self._current_uuid
 
     def load(self) -> gpd.GeoDataFrame:
@@ -155,12 +155,12 @@ class LabelledTransectManager(CRUDManager):
 
     def get_previous_record(self) -> BaseModel | None:
         """Get the previous record for the current user based on the current index."""
-        current_index = self.user_df.index[self.user_df["uuid"] == self.current_uuid][0]
+        current_index = self.user_df.index[self.user_df["uuid"] == self.current_uuid]
         previous_index = current_index - 1
         if previous_index == -1:
             previous_index = len(self.user_df) - 1
 
-        previous_record = self.user_df.iloc[previous_index]
+        previous_record = self.user_df.iloc[[previous_index]]
         self._current_uuid = previous_record.uuid.item()
         try:
             record = TypologyTrainSample.from_frame(previous_record)

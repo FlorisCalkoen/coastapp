@@ -95,25 +95,25 @@ class ClassificationManager(CRUDManager):
         """Load transect record data into the classification widgets."""
         # Update the classification widgets based on the fetched record
         # record = self.spatial_query_app.labelled_transect_manager.get_current_record()
-        record = record.to_dict()
-        self.spatial_query_app.current_transect_id = record["transect_id"]
+        record_as_dict = record.to_dict()
+        self.spatial_query_app.current_transect_id = record_as_dict["transect_id"]
         self.classification_schema_manager.attribute_dropdowns[
             "shore_type"
-        ].value = record.get("shore_type")
+        ].value = record_as_dict.get("shore_type")
         self.classification_schema_manager.attribute_dropdowns[
             "coastal_type"
-        ].value = record.get("coastal_type")
+        ].value = record_as_dict.get("coastal_type")
         self.classification_schema_manager.attribute_dropdowns[
             "is_built_environment"
-        ].value = record.get("is_built_environment")
+        ].value = record_as_dict.get("is_built_environment")
         self.classification_schema_manager.attribute_dropdowns[
             "has_defense"
-        ].value = record.get("has_defense")
-        self.confidence_slider.value = record.get("confidence", "medium")
-        self.is_validated_button.value = record.get("is_validated", False)
-        self.comment_input.value = record.get("comment", "")
-        self.link_input.value = record.get("link", "")
-        self.is_challenging_button.value = record.get("is_challenging", False)
+        ].value = record_as_dict.get("has_defense")
+        self.confidence_slider.value = record_as_dict.get("confidence", "medium")
+        self.is_validated_button.value = record_as_dict.get("is_validated", False)
+        self.comment_input.value = record_as_dict.get("comment", "")
+        self.link_input.value = record_as_dict.get("link", "")
+        self.is_challenging_button.value = record_as_dict.get("is_challenging", False)
         self.spatial_query_app.set_transect(record)
 
     def reset_record(self):
@@ -124,14 +124,14 @@ class ClassificationManager(CRUDManager):
         """Callback to load the previous transect."""
         record = self.spatial_query_app.labelled_transect_manager.get_previous_record()
         if record:
-            self.record.update(record)
+            self.record = record
             self.load_transect_data_into_widgets(record)
 
     def load_next_transect(self, event=None):
         """Callback to load the next transect."""
         record = self.spatial_query_app.labelled_transect_manager.get_next_record()
         if record:
-            self.record.update(record)
+            self.record = record
             self.load_transect_data_into_widgets(record)
 
     def iterate_labelled_transects_view(self):
@@ -210,7 +210,7 @@ class ClassificationManager(CRUDManager):
         if pd.isna(datetime_created):
             datetime_created = current_datetime
         else:
-            datetime_created = pd.Timestamp(datetime_created)
+            datetime_created = pd.Timestamp(datetime_created).to_pydatetime()
 
         datetime_updated = current_datetime
 
@@ -300,7 +300,9 @@ class ClassificationManager(CRUDManager):
             raise ValueError("Record is not valid")
 
         # If labelled transects are in memory, update the in-memory dataframe
-        if self.spatial_query_app.labelled_transect_manager.df is not None:
+        # even though the df is not in memory yet, this check fails, so it will always
+        # read the data. Fix that.
+        if self.spatial_query_app.labelled_transect_manager._df is not None:
             self.spatial_query_app.labelled_transect_manager.add_record(record)
 
         # Save the record to cloud storage

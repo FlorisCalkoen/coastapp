@@ -16,7 +16,12 @@ from shapely.geometry import Point
 from shapely.wkb import loads
 
 from coastapp.enums import StorageBackend
-from coastapp.specification import BaseModel, Transect
+from coastapp.specification import (
+    BaseModel,
+    Transect,
+    TypologyTestSample,
+    TypologyTrainSample,
+)
 from coastapp.style_config import COAST_TYPE_COLORS, SHORE_TYPE_MARKERS
 from coastapp.utils import buffer_geometries_in_utm, create_offset_rectangle
 
@@ -306,7 +311,7 @@ class SpatialQueryApp(param.Parameterized):
 
     def plot_transect(self, transect):
         """Plot the given transect with polygons and paths."""
-        if isinstance(transect, BaseModel):
+        if isinstance(transect, (Transect, TypologyTrainSample, TypologyTestSample)):
             transect = transect.to_frame()
 
         coords = list(transect.geometry.item().coords)
@@ -345,8 +350,8 @@ class SpatialQueryApp(param.Parameterized):
     def set_transect(self, data, update=True):
         """Sets the current transect and optionally updates the view."""
 
-        if isinstance(data, dict):
-            data = BaseModel().from_dict(data)
+        if not isinstance(data, (Transect, TypologyTrainSample, TypologyTestSample)):
+            raise ValueError("Data must be an instance of Transect or TypologySample.")
 
         self.current_transect = data
 
@@ -372,6 +377,7 @@ class SpatialQueryApp(param.Parameterized):
         test_df = test_df[~test_df["uuid"].isin(self.seen_uuids)]
         sample = test_df.sample(1)
         self.seen_uuids.append(sample["uuid"].item())
+        sample = TypologyTrainSample.from_frame(sample)
         try:
             self.set_transect(sample)
         except Exception:
@@ -455,6 +461,7 @@ class SpatialQueryApp(param.Parameterized):
         """Queries the nearest transect and updates the current transect."""
         try:
             geometry = self.spatial_engine.get_nearest_geometry(x, y)
+            geometry = Transect.from_frame(geometry)
             self.set_transect(geometry)
         except Exception:
             logger.exception("Failed to query geometry. Reverting to default transect.")
@@ -473,6 +480,7 @@ class SpatialQueryApp(param.Parameterized):
             nearest_transect = gpd.sjoin_nearest(point, df).index_right.item()
             df = df.to_crs(4326)
             geometry = df.iloc[[nearest_transect]]
+            geometry = TypologyTestSample.from_frame(geometry)
             self.set_transect(geometry)
         except Exception:
             logger.exception("Failed to query geometry. Reverting to default transect.")
