@@ -1,14 +1,11 @@
-import datetime
 import logging
-import re
-import unicodedata
-import uuid
 
 import fsspec
 import panel as pn
 import param
 
 from coastapp.crud import CRUDManager
+from coastapp.specification import User  # noqa
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +23,6 @@ class UserManager(CRUDManager):
         self.selected_user = UserName()
 
         # Load existing users
-
         self.existing_users = self.load_existing_users()
 
         # Panel widgets
@@ -61,21 +57,6 @@ class UserManager(CRUDManager):
         formatted_name = record["formatted_name"]
         return f"user_{formatted_name}.json"
 
-    def format_name(self, name: str) -> str:
-        """Formats the user name by converting to lowercase, removing accents,
-        removing special characters, and replacing spaces with hyphens."""
-        # Normalize the string to NFD (Normalization Form Decomposition) to break characters into base and accent parts
-        name = unicodedata.normalize("NFD", name)
-        # Remove accents by filtering out the combining diacritical marks
-        name = "".join(char for char in name if unicodedata.category(char) != "Mn")
-        # Convert to lowercase
-        name = name.lower()
-        # Replace spaces with hyphens
-        name = re.sub(r"\s+", "-", name)
-        # Remove any remaining characters that are not alphanumeric or hyphens
-        name = re.sub(r"[^a-z0-9\-]", "", name)
-        return name
-
     def load_existing_users(self):
         """Load all existing users from the storage backend using the az:// protocol."""
         fs = fsspec.filesystem("az", **self.storage_options)
@@ -87,47 +68,56 @@ class UserManager(CRUDManager):
         return users
 
     def add_new_user(self, event=None):
+        """Add a new user based on input."""
         user_input = self.user_input.value.strip()
 
-        # Check if the user input is empty
         if not user_input:
             self.feedback_message.object = (
                 "**Warning:** Please provide a valid name for the user."
             )
             return
 
-        formatted_name = self.format_name(user_input)
-
         # Check if user already exists
-        if formatted_name in self.existing_users:
+        if any(user == User._format_name(user_input) for user in self.existing_users):
+            formatted_name = User._format_name(user_input)
             self.feedback_message.object = (
                 f"**Warning:** User '{formatted_name}' already exists."
             )
             self.user_list.value = formatted_name
-            self.user_list.param.trigger("value")
-            self.selected_user.value = formatted_name  # Update the reactive user param
-            self.user_input.value = ""  # Clear input after adding
+            return
 
-        else:
-            user_id = str(uuid.uuid4())  # Use UUID for user ID
-            record = {
-                "name": user_input,
-                "formatted_name": formatted_name,
-                "user_id": user_id,
-                "datetime_created": datetime.datetime.now(datetime.UTC).isoformat(),
-            }
-            self.create_record(record)
+        # Create and save new user
+        user = User(name=user_input)
+        if not user.validate():
             self.feedback_message.object = (
-                f"**Success:** User '{formatted_name}' added successfully."
+                f"**Error:** Invalid user record '{user_input}'."
             )
-            # Update user list and select the new user
-            self.existing_users.append(formatted_name)
-            self.user_list.options = [None, *self.existing_users]
-            self.user_list.value = formatted_name
-            self.user_list.param.trigger("options")
-            self.user_list.param.trigger("value")
-            self.selected_user.value = formatted_name  # Update the reactive user param
-            self.user_input.value = ""  # Clear input after adding
+            return
+        self.save_user(user)
+        self.feedback_message.object = (
+            f"**Success:** User '{user.formatted_name}' added successfully."
+        )
+
+        # Update user list and select the new user
+        self.existing_users.append(user.formatted_name)
+        self.user_list.options = [
+            None,
+            *self.existing_users,
+        ]
+        self.user_list.value = user.formatted_name
+        self.user_input.value = ""
+
+    def save_user(self, user: User) -> None:
+        """Save a user record to storage."""
+        fs = fsspec.filesystem("az", **self.storage_options)
+        filename = f"{self.base_uri}/user_{user.formatted_name}.json"
+
+        try:
+            with fs.open(filename, mode="w") as f:
+                f.write(user.to_json())
+        except Exception as e:
+            logger.error(f"Failed to save user {user.formatted_name}: {e}")
+            raise
 
     def select_user(self, event):
         """Handles the selection of an existing user."""
