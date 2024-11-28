@@ -98,6 +98,7 @@ test_predictions_view = pn.Column(
     spatial_query_app.view_test_predictions_button(),
     spatial_query_app.view_storage_backend_button(),
     spatial_query_app.view_filter_test_predictions(),
+    classification_manager.view_iterate_test_transects(),
     classification_manager.view_get_random_test_sample(),
     name="[Advanced]: Explore the test predictions",
 )

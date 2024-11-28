@@ -59,6 +59,14 @@ class ClassificationManager(CRUDManager):
             name="Next Transect", button_type="default"
         )
 
+        # Next and Previous buttons
+        self.previous_test_button = pn.widgets.Button(
+            name="Previous Transect", button_type="default"
+        )
+        self.next_test_button = pn.widgets.Button(
+            name="Next Transect", button_type="default"
+        )
+
         self.uuid_text_input = pn.widgets.TextInput(
             name="Load sample by UUID", placeholder="Enter a UUID here..."
         )
@@ -71,8 +79,14 @@ class ClassificationManager(CRUDManager):
         self.save_button.on_click(self.save_classification)
         self.is_challenging_button.param.watch(self.toggle_is_challenging, "value")
         self.is_validated_button.param.watch(self.toggle_is_validated, "value")
+
+        # Next and Previous buttons
         self.previous_button.on_click(self.load_previous_transect)
         self.next_button.on_click(self.load_next_transect)
+        # test buttons
+        self.previous_test_button.on_click(self.load_previous_test_transect)
+        self.next_test_button.on_click(self.load_next_test_transect)
+
         self.uuid_text_input.param.watch(self._load_record_by_uuid, "value")
         self.get_random_test_sample_button.on_click(self._get_random_test_sample)
 
@@ -140,9 +154,31 @@ class ClassificationManager(CRUDManager):
             self.record = record
             self.load_transect_data_into_widgets(record)
 
+    def load_previous_test_transect(self, event=None):
+        """Callback to load the previous transect."""
+        record = self.spatial_query_app.labelled_transect_manager.get_previous_record(
+            dataframe="test_df"
+        )
+        if record:
+            self.record = record
+            self.load_transect_data_into_widgets(record)
+
+    def load_next_test_transect(self, event=None):
+        """Callback to load the next transect."""
+        record = self.spatial_query_app.labelled_transect_manager.get_next_record(
+            "test_df"
+        )
+        if record:
+            self.record = record
+            self.load_transect_data_into_widgets(record)
+
     def iterate_labelled_transects_view(self):
         """Return a Row containing the Previous and Next transect buttons."""
         return pn.Row(self.previous_button, self.next_button)
+
+    def view_iterate_test_transects(self):
+        """Return a Row containing the Previous and Next transect buttons."""
+        return pn.Row(self.previous_test_button, self.next_test_button)
 
     def uuid_text_input_view(self):
         """Return an AutocompleteInput widget for UUID entry."""
