@@ -6,7 +6,7 @@ import pandas as pd
 import panel as pn
 
 from coastapp.crud import CRUDManager
-from coastapp.specification import Transect, TypologyTrainSample
+from coastapp.specification import Transect, TypologyTestSample, TypologyTrainSample
 
 logger = logging.getLogger(__name__)
 
@@ -63,20 +63,22 @@ class ClassificationManager(CRUDManager):
             name="Load sample by UUID", placeholder="Enter a UUID here..."
         )
 
-        self.load_record_button = pn.widgets.Toggle(
-            name="Load record", button_type="default", value=False
+        self.get_random_test_sample_button = pn.widgets.Button(
+            name="Get random test sample", button_type="default"
         )
 
         # Setup callbacks
         self.save_button.on_click(self.save_classification)
         self.is_challenging_button.param.watch(self.toggle_is_challenging, "value")
         self.is_validated_button.param.watch(self.toggle_is_validated, "value")
-        self.load_record_button.param.watch(self.toggle_load_record, "value")
         self.previous_button.on_click(self.load_previous_transect)
         self.next_button.on_click(self.load_next_transect)
         self.uuid_text_input.param.watch(self._load_record_by_uuid, "value")
+        self.get_random_test_sample_button.on_click(self._get_random_test_sample)
 
         self.setup_schema_callbacks()
+
+        self.seen_uuids = []
 
     def setup_schema_callbacks(self):
         """Setup callbacks for classification schema dropdowns to enable save button."""
@@ -122,14 +124,18 @@ class ClassificationManager(CRUDManager):
 
     def load_previous_transect(self, event=None):
         """Callback to load the previous transect."""
-        record = self.spatial_query_app.labelled_transect_manager.get_previous_record()
+        record = self.spatial_query_app.labelled_transect_manager.get_previous_record(
+            dataframe="user_df"
+        )
         if record:
             self.record = record
             self.load_transect_data_into_widgets(record)
 
     def load_next_transect(self, event=None):
         """Callback to load the next transect."""
-        record = self.spatial_query_app.labelled_transect_manager.get_next_record()
+        record = self.spatial_query_app.labelled_transect_manager.get_next_record(
+            "user_df"
+        )
         if record:
             self.record = record
             self.load_transect_data_into_widgets(record)
@@ -181,6 +187,11 @@ class ClassificationManager(CRUDManager):
         landform_type = self.classification_schema_manager.attribute_dropdowns[
             "landform_type"
         ].value
+
+        # NOTE: tmp fixup that accounts for empty landform types
+        if not landform_type:
+            landform_type = "N/A"
+
         is_built_environment = self.classification_schema_manager.attribute_dropdowns[
             "is_built_environment"
         ].value
@@ -243,6 +254,7 @@ class ClassificationManager(CRUDManager):
 
     def validate_record(self, record: dict) -> bool:
         """Validate that all required fields are filled."""
+
         required_fields = [
             "user",
             "transect_id",
@@ -298,6 +310,10 @@ class ClassificationManager(CRUDManager):
 
         if not record.validate():
             raise ValueError("Record is not valid")
+
+        # TODO: in future do the validation like above
+        if not self.validate_record(record.to_dict()):
+            return
 
         # If labelled transects are in memory, update the in-memory dataframe
         # even though the df is not in memory yet, this check fails, so it will always
@@ -355,6 +371,86 @@ class ClassificationManager(CRUDManager):
             if record:
                 self.load_transect_data_into_widgets(record)
 
+    def _get_random_test_sample(self, event):
+        """Handle the button click to get a random transect from the filtered test_df."""
+        test_df = self.spatial_query_app.labelled_transect_manager.test_df
+
+        # Apply filters based on widget states
+        if self.spatial_query_app.only_use_incorrect:
+            test_df = test_df[
+                (test_df["shore_type"] != test_df["pred_shore_type"])
+                | (test_df["coastal_type"] != test_df["pred_coastal_type"])
+            ]
+
+        if self.spatial_query_app.only_use_non_validated:
+            test_df = test_df[~test_df["is_validated"]]
+
+        confidence_hierarchy = {
+            "low": ["low", "medium", "high"],
+            "medium": ["medium", "high"],
+            "high": ["high"],
+        }
+
+        confidence_level = self.spatial_query_app.confidence_filter_slider.value
+        valid_confidences = confidence_hierarchy[confidence_level]
+        test_df = test_df[test_df["confidence"].isin(valid_confidences)]
+
+        # Exclude already seen UUIDs
+        test_df = test_df[~test_df["uuid"].isin(self.seen_uuids)]
+
+        if test_df.empty:
+            logger.warning("No records available after filtering.")
+            return
+
+        # Sample one record
+        sample = test_df.sample(1)
+        self.seen_uuids.append(sample["uuid"].item())
+
+        # Convert to model
+        train_sample = TypologyTrainSample.from_frame(sample)
+        test_sample = TypologyTestSample(
+            train_sample=train_sample,
+            pred_shore_type=sample.pred_shore_type.item(),
+            pred_coastal_type=sample.pred_coastal_type.item(),
+            pred_has_defense=sample.pred_has_defense.item(),
+            pred_is_built_environment=sample.pred_is_built_environment.item(),
+        )
+
+        try:
+            self.load_transect_data_into_widgets(test_sample)
+        except Exception:
+            logger.exception("Failed to query geometry. Reverting to default transect.")
+            self.spatial_query_app.set_transect(self.spatial_query_app.default_geometry)
+
+    # def _get_random_test_sample(self, event):
+    #     """Handle the button click to get a random transect."""
+    #     test_df = self.spatial_query_app.labelled_transect_manager.test_df
+
+    #     if self.spatial_query_app.only_use_incorrect:
+    #         test_df = test_df[
+    #             (test_df["shore_type"] != test_df["pred_shore_type"])
+    #             | (test_df["coastal_type"] != test_df["pred_coastal_type"])
+    #         ]
+    #     test_df = test_df[~test_df["uuid"].isin(self.seen_uuids)]
+    #     sample = test_df.sample(1)
+    #     self.seen_uuids.append(sample["uuid"].item())
+
+    #     # TODO: workaround until we start using namespaces
+    #     train_sample = TypologyTrainSample.from_frame(sample)
+    #     test_sample = TypologyTestSample(
+    #         train_sample=train_sample,
+    #         pred_shore_type=sample.pred_shore_type.item(),
+    #         pred_coastal_type=sample.pred_coastal_type.item(),
+    #         pred_has_defense=sample.pred_has_defense.item(),
+    #         pred_is_built_environment=sample.pred_is_built_environment.item(),
+    #     )
+
+    #     try:
+    #         self.load_transect_data_into_widgets(test_sample)
+    #     except Exception:
+    #         logger.exception("Failed to query geometry. Reverting to default transect.")
+    #         self.spatial_query_app.set_transect(self.spatial_query_app.default_geometry)
+
     def view(self):
         """View for displaying the classification save interface."""
         return pn.Column(
@@ -369,5 +465,6 @@ class ClassificationManager(CRUDManager):
     def view_quality_assurance(self):
         return pn.Column(self.confidence_slider, self.is_validated_button)
 
-    def view_load_record(self):
-        return self.load_record_button
+    def view_get_random_test_sample(self):
+        """Returns the toggle button to view predicted test transects."""
+        return self.get_random_test_sample_button

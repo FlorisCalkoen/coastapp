@@ -66,8 +66,9 @@ LandformType = Literal[
     "tombolo",
     "N/A",
 ]
-IsBuiltEnvironment = Literal["true", "false"]
-HasDefense = Literal["true", "false"]
+# NOTE: until model predicts these values, we can use N/A as a placeholder
+IsBuiltEnvironment = Literal["true", "false", "N/A"]
+HasDefense = Literal["true", "false", "N/A"]
 
 PANDAS_TYPE_MAP = {
     # Primitive Types
@@ -593,7 +594,7 @@ class Transect(BaseModel):
 
 class TypologyTrainSample(BaseModel):
     transect: Transect
-    user: str
+    user: str  # TODO: annotate/literal by regex to make empty strings invalid
     uuid: str  # universal_unique_id = uuid.uuid4().hex[:12]
     datetime_created: datetime.datetime
     datetime_updated: datetime.datetime

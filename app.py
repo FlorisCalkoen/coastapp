@@ -95,10 +95,10 @@ additional_features_view = pn.Column(
 test_predictions_view = pn.Column(
     pn.pane.Markdown("## [Advanced:] Explore the test predictions"),
     spatial_query_app.view_test_layer_select(),
-    spatial_query_app.view_storage_backend_button(),
     spatial_query_app.view_test_predictions_button(),
-    spatial_query_app.view_get_random_test_sample(),
-    classification_manager.view_load_record(),
+    spatial_query_app.view_storage_backend_button(),
+    spatial_query_app.view_filter_test_predictions(),
+    classification_manager.view_get_random_test_sample(),
     name="[Advanced]: Explore the test predictions",
 )
 

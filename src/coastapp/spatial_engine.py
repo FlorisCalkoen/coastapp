@@ -210,6 +210,9 @@ class SpatialQueryApp(param.Parameterized):
     only_use_incorrect = param.Boolean(
         default=False, doc="Only show incorrect predictions"
     )
+    only_use_non_validated = param.Boolean(
+        default=False, doc="Only show incorrect predictions"
+    )
 
     shore_type_markers = SHORE_TYPE_MARKERS
     coast_type_colors = COAST_TYPE_COLORS
@@ -234,8 +237,6 @@ class SpatialQueryApp(param.Parameterized):
 
         # Initialize the UI components (view initialized first)
         self.transect_view = self.initialize_view()
-
-        self.seen_uuids = []
 
         # Mark the view as initialized
         self.view_initialized = True
@@ -264,8 +265,21 @@ class SpatialQueryApp(param.Parameterized):
         self.only_show_incorrect_predictions_button = pn.widgets.Toggle(
             name="Only show incorrect predictions", value=False, button_type="default"
         )
+
         self.only_show_incorrect_predictions_button.param.watch(
             self.toggle_only_show_incorrect_predictions, "value"
+        )
+
+        self.only_show_non_validated_button = pn.widgets.Toggle(
+            name="Only Non-Validated", button_type="default", value=False
+        )
+
+        self.only_show_non_validated_button.param.watch(
+            self.toggle_only_show_non_validated, "value"
+        )
+
+        self.confidence_filter_slider = pn.widgets.DiscreteSlider(
+            options=["low", "medium", "high"], name="Confidence Filter", value="medium"
         )
 
         self.storage_backend_button = pn.widgets.Toggle(
@@ -278,11 +292,6 @@ class SpatialQueryApp(param.Parameterized):
         )
         self.get_random_transect_button.on_click(self._get_random_transect)
 
-        self.get_random_test_sample_button = pn.widgets.Button(
-            name="Get random test sample", button_type="default"
-        )
-        self.get_random_test_sample_button.on_click(self._get_random_test_sample)
-
         # Add a radio button group for basemap selection
         self.basemap_button = pn.widgets.RadioButtonGroup(
             name="Basemap", options=["Esri Imagery", "OSM"], value="Esri Imagery"
@@ -293,9 +302,7 @@ class SpatialQueryApp(param.Parameterized):
         """Initializes the HoloViews pane using the current transect."""
         return pn.pane.HoloViews(
             (
-                self.plot_transect(self.current_transect.to_frame())
-                * self.tiles
-                * self.point_draw
+                self.plot_transect(self.current_transect) * self.tiles * self.point_draw
             ).opts(active_tools=["wheel_zoom"])
         )
 
@@ -310,42 +317,153 @@ class SpatialQueryApp(param.Parameterized):
         self.update_view()
 
     def plot_transect(self, transect):
-        """Plot the given transect with polygons and paths."""
-        if isinstance(transect, (Transect, TypologyTrainSample, TypologyTestSample)):
-            transect = transect.to_frame()
+        """
+        Plot a transect or test sample by delegating to the appropriate private method.
 
-        coords = list(transect.geometry.item().coords)
+        Args:
+            transect (BaseModel): A Transect, TypologyTrainSample, or TypologyTestSample instance.
+
+        Returns:
+            gv.Overlay: A Holoviews overlay object with the visualization layers.
+        """
+        if isinstance(transect, (Transect, TypologyTrainSample)):
+            return self._plot_transect(transect)
+        elif isinstance(transect, TypologyTestSample):
+            return self._plot_test_transect(transect)
+        else:
+            raise ValueError(f"Unsupported transect type: {type(transect)}")
+
+    def _plot_transect(self, transect):
+        """
+        Plot a basic transect or training sample.
+
+        Args:
+            transect (BaseModel): A Transect or TypologyTrainSample instance.
+
+        Returns:
+            gv.Overlay: A Holoviews overlay object with the visualization layers.
+        """
+        transect_df = transect.to_frame()
+
+        coords = list(transect_df.geometry.item().coords)
         landward_point, seaward_point = coords[0], coords[-1]
-        # NOTE: I don't think showing the origin point is necessary
-        # transect_origin_point = shapely.Point(transect.lon.item(), transect.lat.item())
+
+        # Base polygon visualization
         polygon = gpd.GeoDataFrame(
             geometry=[
                 create_offset_rectangle(
-                    transect.to_crs(transect.estimate_utm_crs()).geometry.item(), 200
+                    transect_df.to_crs(transect_df.estimate_utm_crs()).geometry.item(),
+                    200,
                 )
             ],
-            crs=transect.estimate_utm_crs(),
+            crs=transect_df.estimate_utm_crs(),
         )
         polygon_plot = gv.Polygons(
             polygon[["geometry"]].to_crs(4326), label="Area of Interest"
         ).opts(fill_alpha=0.1, fill_color="green", line_width=2)
+
+        # Transect line visualization
         transect_plot = gv.Path(
-            transect[["geometry"]].to_crs(4326), label="Transect"
+            transect_df[["geometry"]].to_crs(4326), label="Transect"
         ).opts(color="red", line_width=1, tools=["hover"])
+
+        # Points for landward and seaward locations
         landward_point_plot = gv.Points([landward_point], label="Landward").opts(
             color="green", line_color="red", size=10
         )
         seaward_point_plot = gv.Points([seaward_point], label="Seaward").opts(
             color="blue", line_color="red", size=10
         )
-        # NOTE: I don't think showing the origin point is necessary
-        # transect_origin_point_plot = gv.Points(
-        #     [transect_origin_point], label="Origin"
-        # ).opts(color="red", line_color="red", size=10)
 
         return (
             polygon_plot * transect_plot * landward_point_plot * seaward_point_plot
         ).opts(legend_position="bottom_right")
+
+    def _plot_test_transect(self, test_sample):
+        """
+        Plot a test transect with prediction-specific layers.
+
+        Args:
+            test_sample (TypologyTestSample): A TypologyTestSample instance.
+
+        Returns:
+            gv.Overlay: A Holoviews overlay object with the visualization layers.
+        """
+        test_df = test_sample.to_frame()
+        if "pred_shore_type" not in test_df.columns:
+            raise ValueError("Test sample missing prediction data.")
+
+        test_df["coast_color"] = test_df["pred_coastal_type"].map(
+            self.coast_type_colors
+        )
+        test_df["shore_marker"] = test_df["pred_shore_type"].map(
+            self.shore_type_markers
+        )
+
+        pred_coast_type = test_df["pred_coastal_type"].item()
+        pred_shore_type = test_df["pred_shore_type"].item()
+
+        # Map coordinates for visualization
+        test_df["Longitude"] = test_df.lon
+        test_df["Latitude"] = test_df.lat
+
+        transect_plot = self._plot_transect(test_sample)
+
+        prediction_plot = gv.Points(
+            test_df,
+            kdims=["Longitude", "Latitude"],
+            vdims=[
+                "coast_color",
+                "pred_shore_type",
+                "pred_coastal_type",
+                "shore_marker",
+            ],
+            label=f"Shore type: {pred_shore_type} \nCoastal type: {pred_coast_type}",
+        ).opts(
+            color="coast_color",
+            size=25,
+            marker="shore_marker",
+        )
+
+        return (transect_plot * prediction_plot).opts(legend_position="bottom_right")
+
+    # def plot_transect(self, transect):
+    #     """Plot the given transect with polygons and paths."""
+    #     if isinstance(transect, (Transect, TypologyTrainSample, TypologyTestSample)):
+    #         transect = transect.to_frame()
+
+    #     coords = list(transect.geometry.item().coords)
+    #     landward_point, seaward_point = coords[0], coords[-1]
+    #     # NOTE: I don't think showing the origin point is necessary
+    #     # transect_origin_point = shapely.Point(transect.lon.item(), transect.lat.item())
+    #     polygon = gpd.GeoDataFrame(
+    #         geometry=[
+    #             create_offset_rectangle(
+    #                 transect.to_crs(transect.estimate_utm_crs()).geometry.item(), 200
+    #             )
+    #         ],
+    #         crs=transect.estimate_utm_crs(),
+    #     )
+    #     polygon_plot = gv.Polygons(
+    #         polygon[["geometry"]].to_crs(4326), label="Area of Interest"
+    #     ).opts(fill_alpha=0.1, fill_color="green", line_width=2)
+    #     transect_plot = gv.Path(
+    #         transect[["geometry"]].to_crs(4326), label="Transect"
+    #     ).opts(color="red", line_width=1, tools=["hover"])
+    #     landward_point_plot = gv.Points([landward_point], label="Landward").opts(
+    #         color="green", line_color="red", size=10
+    #     )
+    #     seaward_point_plot = gv.Points([seaward_point], label="Seaward").opts(
+    #         color="blue", line_color="red", size=10
+    #     )
+    #     # NOTE: I don't think showing the origin point is necessary
+    #     # transect_origin_point_plot = gv.Points(
+    #     #     [transect_origin_point], label="Origin"
+    #     # ).opts(color="red", line_color="red", size=10)
+
+    #     return (
+    #         polygon_plot * transect_plot * landward_point_plot * seaward_point_plot
+    #     ).opts(legend_position="bottom_right")
 
     def set_transect(self, data, update=True):
         """Sets the current transect and optionally updates the view."""
@@ -364,25 +482,6 @@ class SpatialQueryApp(param.Parameterized):
         transect = self.spatial_engine.get_random_transect()
         transect = Transect.from_frame(transect)
         self.set_transect(transect)
-
-    def _get_random_test_sample(self, event):
-        """Handle the button click to get a random transect."""
-        test_df = self.labelled_transect_manager.test_df
-
-        if self.only_use_incorrect:
-            test_df = test_df[
-                (test_df["shore_type"] != test_df["pred_shore_type"])
-                | (test_df["coastal_type"] != test_df["pred_coastal_type"])
-            ]
-        test_df = test_df[~test_df["uuid"].isin(self.seen_uuids)]
-        sample = test_df.sample(1)
-        self.seen_uuids.append(sample["uuid"].item())
-        sample = TypologyTrainSample.from_frame(sample)
-        try:
-            self.set_transect(sample)
-        except Exception:
-            logger.exception("Failed to query geometry. Reverting to default transect.")
-            self.set_transect(self.default_geometry)
 
     def toggle_labelled_transects(self, event):
         """Handle the toggle button to show or hide labelled transects."""
@@ -403,6 +502,17 @@ class SpatialQueryApp(param.Parameterized):
 
         else:
             self.test_predictions_button.button_type = "default"
+        self.update_view()
+
+    def toggle_only_show_non_validated(self, event):
+        """Handle the toggle button to show or hide labelled transects."""
+        self.only_use_non_validated = event.new
+
+        if self.only_use_non_validated:
+            self.only_show_non_validated_button.button_type = "success"
+
+        else:
+            self.only_show_non_validated_button.button_type = "default"
         self.update_view()
 
     def toggle_only_show_incorrect_predictions(self, event):
@@ -428,20 +538,38 @@ class SpatialQueryApp(param.Parameterized):
             self.storage_backend_button.button_type = "default"
             self.storage_backend = StorageBackend.GCTS
 
+    # def update_view(self):
+    #     """Update the visualization based on the current transect."""
+    #     new_view = self.plot_transect(self.current_transect)
+
+    #     # If show_labelled_transects is True, include labelled transects in the view
+    #     if self.show_labelled_transects:
+    #         labelled_transects_plot = self.plot_labelled_transects()
+    #         new_view = new_view * labelled_transects_plot
+
+    #     if self.show_test_predictions:
+    #         new_view = new_view * self.plot_test_predictions()
+
+    #     if self.use_test_storage_backend:
+    #         new_view = new_view * self.plot_test_prediction()
+
+    #     self.transect_view.object = (new_view * self.tiles * self.point_draw).opts(
+    #         legend_position="bottom_right",
+    #         active_tools=["wheel_zoom"],
+    #     )
+
     def update_view(self):
-        """Update the visualization based on the current transect."""
+        """
+        Update the visualization based on the current transect and settings.
+        """
         new_view = self.plot_transect(self.current_transect)
 
-        # If show_labelled_transects is True, include labelled transects in the view
         if self.show_labelled_transects:
             labelled_transects_plot = self.plot_labelled_transects()
             new_view = new_view * labelled_transects_plot
 
         if self.show_test_predictions:
             new_view = new_view * self.plot_test_predictions()
-
-        if self.use_test_storage_backend:
-            new_view = new_view * self.plot_test_prediction()
 
         self.transect_view.object = (new_view * self.tiles * self.point_draw).opts(
             legend_position="bottom_right",
@@ -609,9 +737,7 @@ class SpatialQueryApp(param.Parameterized):
 
     def view_test_predictions_button(self):
         """Returns the toggle button to view predicted test transects."""
-        return pn.Row(
-            self.test_predictions_button, self.only_show_incorrect_predictions_button
-        )
+        return self.test_predictions_button
 
     def view_storage_backend_button(self):
         """Returns the toggle button to view predicted test transects."""
@@ -629,10 +755,14 @@ class SpatialQueryApp(param.Parameterized):
         """Returns the toggle button to view predicted test transects."""
         return self.labelled_transect_manager.test_layer_select
 
+    def view_filter_test_predictions(self):
+        """Returns the toggle button to view predicted test transects."""
+        return pn.Column(
+            self.only_show_incorrect_predictions_button,
+            self.only_show_non_validated_button,
+            self.confidence_filter_slider,
+        )
+
     def view_only_show_incorrect_predictions(self):
         """Returns the toggle button to view predicted test transects."""
         return self.only_show_incorrect_predictions_button
-
-    def view_get_random_test_sample(self):
-        """Returns the toggle button to view predicted test transects."""
-        return self.get_random_test_sample_button
