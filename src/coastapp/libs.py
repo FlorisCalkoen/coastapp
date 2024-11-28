@@ -126,4 +126,4 @@ def read_records_to_pandas(
         msg = "No valid records found."
         raise ValueError(msg)
 
-    return pd.concat([r.to_frame() for r in records])
+    return pd.concat([r.to_frame() for r in records]).reset_index(drop=True)

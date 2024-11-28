@@ -59,6 +59,7 @@ class LabelledTransectManager(CRUDManager):
             _user_df.sort_values(["datetime_created", "datetime_updated"])
             .groupby("transect_id")
             .tail(1)
+            .reset_index(drop=True)
         )
 
         return _user_df
@@ -134,35 +135,49 @@ class LabelledTransectManager(CRUDManager):
             logger.error(f"Failed to append the new record: {e}")
             raise
 
-    def get_next_record(self) -> dict | None:
+    def get_next_record(self) -> BaseModel | None:
         """Get the next record for the current user based on the current index."""
+        if self.user_df.empty or self.current_uuid not in self.user_df["uuid"].values:
+            logger.warning("No records available or invalid UUID.")
+            return None
 
-        current_index = self.user_df.index[self.user_df["uuid"] == self.current_uuid][0]
-        next_index = current_index + 1
-        if next_index >= len(self.user_df):
-            next_index = 0
-
-        next_record = self.user_df.iloc[next_index]
-        self._current_uuid = next_record.uuid.item()
         try:
-            record = TypologyTrainSample.from_frame(next_record).to_dict()
+            current_index = int(
+                self.user_df.index[self.user_df["uuid"] == self.current_uuid][0]
+            )
+            # current_index = self.user_df.index[self.user_df["uuid"] == self.current_uuid]
+            next_index = current_index + 1
+            if next_index >= len(self.user_df):
+                next_index = 0
+
+            next_record = self.user_df.iloc[[next_index]]
+            self._current_uuid = next_record.uuid.item()
+            record = TypologyTrainSample.from_frame(next_record)
             return record
-        except Exception:
+
+        except Exception as e:
             logger.warning(
-                f"No records found for user: {self.user_manager.selected_user.value}"
+                f"No records found for user: {self.user_manager.selected_user.value}. Error: {e}"
             )
             return None
 
     def get_previous_record(self) -> BaseModel | None:
         """Get the previous record for the current user based on the current index."""
-        current_index = self.user_df.index[self.user_df["uuid"] == self.current_uuid]
-        previous_index = current_index - 1
-        if previous_index == -1:
-            previous_index = len(self.user_df) - 1
 
-        previous_record = self.user_df.iloc[[previous_index]]
-        self._current_uuid = previous_record.uuid.item()
+        if self.user_df.empty or self.current_uuid not in self.user_df["uuid"].values:
+            logger.warning("No records available or invalid UUID.")
+            return None
+
         try:
+            current_index = int(
+                self.user_df.index[self.user_df["uuid"] == self.current_uuid][0]
+            )
+            previous_index = current_index - 1
+            if previous_index == -1:
+                previous_index = len(self.user_df) - 1
+
+            previous_record = self.user_df.iloc[[previous_index]]
+            self._current_uuid = previous_record.uuid.item()
             record = TypologyTrainSample.from_frame(previous_record)
             return record
         except Exception:
