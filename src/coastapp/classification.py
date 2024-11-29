@@ -7,11 +7,14 @@ import panel as pn
 
 from coastapp.crud import CRUDManager
 from coastapp.specification import Transect, TypologyTestSample, TypologyTrainSample
+from coastapp.shared_state import shared_state
 
 logger = logging.getLogger(__name__)
 
 
 class ClassificationManager(CRUDManager):
+    shared_state = shared_state
+
     def __init__(
         self,
         storage_options,
@@ -412,35 +415,37 @@ class ClassificationManager(CRUDManager):
         test_df = self.spatial_query_app.labelled_transect_manager.test_df
 
         # Apply filters based on widget states
-        if self.spatial_query_app.only_use_incorrect:
-            test_df = test_df[
-                (test_df["shore_type"] != test_df["pred_shore_type"])
-                | (test_df["coastal_type"] != test_df["pred_coastal_type"])
-            ]
+        # if self.spatial_query_app.only_use_incorrect:
+        #     test_df = test_df[
+        #         (test_df["shore_type"] != test_df["pred_shore_type"])
+        #         | (test_df["coastal_type"] != test_df["pred_coastal_type"])
+        #     ]
 
-        if self.spatial_query_app.only_use_non_validated:
-            test_df = test_df[~test_df["is_validated"]]
+        # if self.spatial_query_app.only_use_non_validated:
+        #     test_df = test_df[~test_df["is_validated"]]
 
-        confidence_hierarchy = {
-            "low": ["low", "medium", "high"],
-            "medium": ["medium", "high"],
-            "high": ["high"],
-        }
+        # confidence_hierarchy = {
+        #     "low": ["low", "medium", "high"],
+        #     "medium": ["medium", "high"],
+        #     "high": ["high"],
+        # }
 
-        confidence_level = self.spatial_query_app.confidence_filter_slider.value
-        valid_confidences = confidence_hierarchy[confidence_level]
-        test_df = test_df[test_df["confidence"].isin(valid_confidences)]
+        # confidence_level = self.spatial_query_app.confidence_filter_slider.value
+        # valid_confidences = confidence_hierarchy[confidence_level]
+        # test_df = test_df[test_df["confidence"].isin(valid_confidences)]
 
-        # Exclude already seen UUIDs
-        test_df = test_df[~test_df["uuid"].isin(self.seen_uuids)]
+        # # Exclude already seen UUIDs
+        # test_df = test_df[~test_df["uuid"].isin(self.seen_uuids)]
 
-        if test_df.empty:
-            logger.warning("No records available after filtering.")
-            return
+        # if test_df.empty:
+        #     logger.warning("No records available after filtering.")
+        #     return
 
         # Sample one record
         sample = test_df.sample(1)
-        self.seen_uuids.append(sample["uuid"].item())
+        self.shared_state.seen_uuids = self.shared_state.seen_uuids + [
+            sample["uuid"].item()
+        ]
 
         # Convert to model
         train_sample = TypologyTrainSample.from_frame(sample)
@@ -457,35 +462,6 @@ class ClassificationManager(CRUDManager):
         except Exception:
             logger.exception("Failed to query geometry. Reverting to default transect.")
             self.spatial_query_app.set_transect(self.spatial_query_app.default_geometry)
-
-    # def _get_random_test_sample(self, event):
-    #     """Handle the button click to get a random transect."""
-    #     test_df = self.spatial_query_app.labelled_transect_manager.test_df
-
-    #     if self.spatial_query_app.only_use_incorrect:
-    #         test_df = test_df[
-    #             (test_df["shore_type"] != test_df["pred_shore_type"])
-    #             | (test_df["coastal_type"] != test_df["pred_coastal_type"])
-    #         ]
-    #     test_df = test_df[~test_df["uuid"].isin(self.seen_uuids)]
-    #     sample = test_df.sample(1)
-    #     self.seen_uuids.append(sample["uuid"].item())
-
-    #     # TODO: workaround until we start using namespaces
-    #     train_sample = TypologyTrainSample.from_frame(sample)
-    #     test_sample = TypologyTestSample(
-    #         train_sample=train_sample,
-    #         pred_shore_type=sample.pred_shore_type.item(),
-    #         pred_coastal_type=sample.pred_coastal_type.item(),
-    #         pred_has_defense=sample.pred_has_defense.item(),
-    #         pred_is_built_environment=sample.pred_is_built_environment.item(),
-    #     )
-
-    #     try:
-    #         self.load_transect_data_into_widgets(test_sample)
-    #     except Exception:
-    #         logger.exception("Failed to query geometry. Reverting to default transect.")
-    #         self.spatial_query_app.set_transect(self.spatial_query_app.default_geometry)
 
     def view(self):
         """View for displaying the classification save interface."""

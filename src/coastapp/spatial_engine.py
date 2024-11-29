@@ -24,6 +24,7 @@ from coastapp.specification import (
 )
 from coastapp.style_config import COAST_TYPE_COLORS, SHORE_TYPE_MARKERS
 from coastapp.utils import buffer_geometries_in_utm, create_offset_rectangle
+from coastapp.shared_state import shared_state
 
 logger = logging.getLogger(__name__)
 
@@ -198,21 +199,23 @@ class SpatialQueryEngine:
 
 class SpatialQueryApp(param.Parameterized):
     current_transect = param.ClassSelector(class_=BaseModel, doc="Current transect")
-    show_labelled_transects = param.Boolean(
-        default=False, doc="Show/Hide Labelled Transects"
-    )
-    show_test_predictions = param.Boolean(
-        default=False, doc="Show/Hide Test Prediction Layer"
-    )
-    use_test_storage_backend = param.Boolean(
-        default=False, doc="Use test storage backend"
-    )
-    only_use_incorrect = param.Boolean(
-        default=False, doc="Only show incorrect predictions"
-    )
-    only_use_non_validated = param.Boolean(
-        default=False, doc="Only show incorrect predictions"
-    )
+
+    # show_labelled_transects = param.Boolean(
+    #     default=False, doc="Show/Hide Labelled Transects"
+    # )
+    # show_test_predictions = param.Boolean(
+    #     default=False, doc="Show/Hide Test Prediction Layer"
+    # )
+    # use_test_storage_backend = param.Boolean(
+    #     default=False, doc="Use test storage backend"
+    # )
+    # only_use_incorrect = param.Boolean(
+    #     default=False, doc="Only show incorrect predictions"
+    # )
+    # only_use_non_validated = param.Boolean(
+    #     default=False, doc="Only show incorrect predictions"
+    # )
+    shared_state = shared_state
 
     shore_type_markers = SHORE_TYPE_MARKERS
     coast_type_colors = COAST_TYPE_COLORS
@@ -372,7 +375,9 @@ class SpatialQueryApp(param.Parameterized):
             label = "Transect"
 
         transect_origin = transect_df.lon.item(), transect_df.lat.item()
-        transect_origin_plot = gv.Points([transect_origin], label=label, color="red")
+        transect_origin_plot = gv.Points([transect_origin], label=label).opts(
+            color="red"
+        )
 
         # Transect line visualization
         transect_plot = gv.Path(transect_df[["geometry"]].to_crs(4326)).opts(
@@ -463,9 +468,9 @@ class SpatialQueryApp(param.Parameterized):
 
     def toggle_labelled_transects(self, event):
         """Handle the toggle button to show or hide labelled transects."""
-        self.show_labelled_transects = event.new
+        self.shared_state.show_labelled_transects = event.new
 
-        if self.show_labelled_transects:
+        if self.shared_state.show_labelled_transects:
             self.toggle_button.button_type = "success"  # Set to green
         else:
             self.toggle_button.button_type = "default"
@@ -473,9 +478,9 @@ class SpatialQueryApp(param.Parameterized):
 
     def toggle_test_predictions(self, event):
         """Handle the toggle button to show or hide labelled transects."""
-        self.show_test_predictions = event.new
+        self.shared_state.show_test_predictions = event.new
 
-        if self.show_test_predictions:
+        if self.shared_state.show_test_predictions:
             self.test_predictions_button.button_type = "success"
 
         else:
@@ -484,9 +489,9 @@ class SpatialQueryApp(param.Parameterized):
 
     def toggle_only_show_non_validated(self, event):
         """Handle the toggle button to show or hide labelled transects."""
-        self.only_use_non_validated = event.new
+        self.shared_state.only_use_non_validated = event.new
 
-        if self.only_use_non_validated:
+        if self.shared_state.only_use_non_validated:
             self.only_show_non_validated_button.button_type = "success"
 
         else:
@@ -495,9 +500,9 @@ class SpatialQueryApp(param.Parameterized):
 
     def toggle_only_show_incorrect_predictions(self, event):
         """Handle the toggle button to show or hide labelled transects."""
-        self.only_use_incorrect = event.new
+        self.shared_state.only_use_incorrect = event.new
 
-        if self.only_use_incorrect:
+        if self.shared_state.only_use_incorrect:
             self.only_show_incorrect_predictions_button.button_type = "success"
 
         else:
@@ -506,9 +511,9 @@ class SpatialQueryApp(param.Parameterized):
 
     def toggle_storage_backend(self, event):
         """Handle the toggle button to show or hide labelled transects."""
-        self.use_test_storage_backend = event.new
+        self.shared_state.use_test_storage_backend = event.new
 
-        if self.use_test_storage_backend:
+        if self.shared_state.use_test_storage_backend:
             self.storage_backend_button.button_type = "success"  # Set to green
             self.storage_backend = StorageBackend.PREDICTIONS
 
@@ -516,37 +521,17 @@ class SpatialQueryApp(param.Parameterized):
             self.storage_backend_button.button_type = "default"
             self.storage_backend = StorageBackend.GCTS
 
-    # def update_view(self):
-    #     """Update the visualization based on the current transect."""
-    #     new_view = self.plot_transect(self.current_transect)
-
-    #     # If show_labelled_transects is True, include labelled transects in the view
-    #     if self.show_labelled_transects:
-    #         labelled_transects_plot = self.plot_labelled_transects()
-    #         new_view = new_view * labelled_transects_plot
-
-    #     if self.show_test_predictions:
-    #         new_view = new_view * self.plot_test_predictions()
-
-    #     if self.use_test_storage_backend:
-    #         new_view = new_view * self.plot_test_prediction()
-
-    #     self.transect_view.object = (new_view * self.tiles * self.point_draw).opts(
-    #         legend_position="bottom_right",
-    #         active_tools=["wheel_zoom"],
-    #     )
-
     def update_view(self):
         """
         Update the visualization based on the current transect and settings.
         """
         new_view = self.plot_transect(self.current_transect)
 
-        if self.show_labelled_transects:
+        if self.shared_state.show_labelled_transects:
             labelled_transects_plot = self.plot_labelled_transects()
             new_view = new_view * labelled_transects_plot
 
-        if self.show_test_predictions:
+        if self.shared_state.show_test_predictions:
             new_view = new_view * self.plot_test_predictions()
 
         self.transect_view.object = (new_view * self.tiles * self.point_draw).opts(
@@ -669,11 +654,11 @@ class SpatialQueryApp(param.Parameterized):
             .reset_index(drop=True)
         )
 
-        if self.only_use_incorrect:
-            df = df[
-                (df["shore_type"] != df["pred_shore_type"])
-                | (df["coastal_type"] != df["pred_coastal_type"])
-            ]
+        # if self.shared_state.only_use_incorrect:
+        #     df = df[
+        #         (df["shore_type"] != df["pred_shore_type"])
+        #         | (df["coastal_type"] != df["pred_coastal_type"])
+        #     ]
 
         df = df[
             [

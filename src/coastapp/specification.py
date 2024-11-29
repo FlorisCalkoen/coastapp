@@ -59,6 +59,7 @@ LandformType = Literal[
     "delta",
     "estuary",
     "headland",
+    "inlet",
     "lagoon",
     "mainland_coast",
     "pocket_beach",

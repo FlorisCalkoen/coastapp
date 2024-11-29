@@ -9,6 +9,7 @@ import panel as pn
 
 from coastapp.crud import CRUDManager
 from coastapp.libs import read_records_to_pandas
+from coastapp.shared_state import shared_state
 from coastapp.specification import BaseModel, TypologyTestSample, TypologyTrainSample
 from coastapp.style_config import COAST_TYPE_COLORS, SHORE_TYPE_MARKERS
 
@@ -16,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class LabelledTransectManager(CRUDManager):
+    shared_state = shared_state
     shore_type_markers = SHORE_TYPE_MARKERS
     coast_type_colors = COAST_TYPE_COLORS
 
@@ -70,8 +72,9 @@ class LabelledTransectManager(CRUDManager):
     def test_df(self) -> gpd.GeoDataFrame:
         """Get the test DataFrame."""
         if self._test_df is None:
-            self._fetch_test_predictions()
-        return self._test_df
+            test_df = self._fetch_test_predictions()
+            self._test_df = test_df
+        return self._filter_test_df(self._test_df)
 
     @property
     def current_uuid(self) -> str:
@@ -132,6 +135,68 @@ class LabelledTransectManager(CRUDManager):
         self._test_df = _test_df
         return self._test_df
 
+    def _filter_test_df(self, test_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Filters the test_df based on application-specific widget states.
+
+        Args:
+            test_df (pd.DataFrame): The DataFrame to filter.
+
+        Returns:
+            pd.DataFrame: The filtered DataFrame.
+        """
+        # Get the latest user-specific records
+        df = self.df
+
+        # Merge test_df with user_df to update 'is_validated' and 'confidence'
+        updated_test_df = test_df.merge(
+            df[["transect_id", "user", "is_validated", "confidence"]],
+            on=["transect_id", "user"],
+            how="left",
+            suffixes=("", "_user"),
+        )
+
+        # Overwrite test_df columns with user_df values where available
+        updated_test_df["is_validated"] = updated_test_df[
+            "is_validated_user"
+        ].combine_first(updated_test_df["is_validated"])
+        updated_test_df["confidence"] = updated_test_df[
+            "confidence_user"
+        ].combine_first(updated_test_df["confidence"])
+
+        # Drop the merged columns from user_df
+        updated_test_df = updated_test_df.drop(
+            columns=["is_validated_user", "confidence_user"]
+        )
+
+        # Apply filtering for incorrect predictions
+        if self.shared_state.only_use_incorrect:
+            updated_test_df = updated_test_df[
+                (updated_test_df["shore_type"] != updated_test_df["pred_shore_type"])
+                | (
+                    updated_test_df["coastal_type"]
+                    != updated_test_df["pred_coastal_type"]
+                )
+            ]
+
+        # Filter for non-validated samples if enabled
+        if self.shared_state.only_use_non_validated:
+            updated_test_df = updated_test_df[~updated_test_df["is_validated"]]
+
+        # Filter by confidence levels
+        confidence_hierarchy = {
+            "low": ["low", "medium", "high"],
+            "medium": ["medium", "high"],
+            "high": ["high"],
+        }
+        confidence_level = self.shared_state.confidence_filter_slider.value
+        valid_confidences = confidence_hierarchy[confidence_level]
+        updated_test_df = updated_test_df[
+            updated_test_df["confidence"].isin(valid_confidences)
+        ]
+
+        return updated_test_df.reset_index(drop=True)
+
     def add_record(self, new_record: TypologyTrainSample) -> None:
         """Add a new record to the in-memory dataframe and update the user_df."""
         new_record_df = new_record.to_frame()
@@ -157,7 +222,11 @@ class LabelledTransectManager(CRUDManager):
             BaseModel | None: The next record as a BaseModel, or None if no record is found.
         """
         # Retrieve the dataframe based on the argument
+
         df = getattr(self, dataframe)
+
+        if dataframe == "test_df":
+            df
 
         # Determine the correct UUID to use
         if dataframe == "user_df":
