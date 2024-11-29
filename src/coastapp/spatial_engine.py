@@ -362,10 +362,22 @@ class SpatialQueryApp(param.Parameterized):
             polygon[["geometry"]].to_crs(4326), label="Area of Interest"
         ).opts(fill_alpha=0.1, fill_color="green", line_width=2)
 
+        if hasattr(transect_df, "shore_type"):
+            shore_type = transect_df.shore_type.item()
+            coastal_type = transect_df.coastal_type.item()
+            has_defense = transect_df.has_defense.item()
+            is_built_environment = transect_df.is_built_environment.item()
+            label = f"Shore type: {shore_type} \nCoastal type: {coastal_type} \nHas defense: {has_defense} \nBuilt environment: {is_built_environment}"
+        else:
+            label = "Transect"
+
+        transect_origin = transect_df.lon.item(), transect_df.lat.item()
+        transect_origin_plot = gv.Points([transect_origin], label=label, color="red")
+
         # Transect line visualization
-        transect_plot = gv.Path(
-            transect_df[["geometry"]].to_crs(4326), label="Transect"
-        ).opts(color="red", line_width=1, tools=["hover"])
+        transect_plot = gv.Path(transect_df[["geometry"]].to_crs(4326)).opts(
+            color="red", line_width=1, tools=["hover"]
+        )
 
         # Points for landward and seaward locations
         landward_point_plot = gv.Points([landward_point], label="Landward").opts(
@@ -376,7 +388,11 @@ class SpatialQueryApp(param.Parameterized):
         )
 
         return (
-            polygon_plot * transect_plot * landward_point_plot * seaward_point_plot
+            polygon_plot
+            * transect_origin_plot
+            * transect_plot
+            * landward_point_plot
+            * seaward_point_plot
         ).opts(legend_position="bottom_right")
 
     def _plot_test_transect(self, test_sample):
@@ -418,7 +434,7 @@ class SpatialQueryApp(param.Parameterized):
                 "pred_coastal_type",
                 "shore_marker",
             ],
-            label=f"Shore type: {pred_shore_type} \nCoastal type: {pred_coast_type}",
+            label=f"Pred shore type: {pred_shore_type} \n Pred coastal type: {pred_coast_type}",
         ).opts(
             color="coast_color",
             size=25,
@@ -426,44 +442,6 @@ class SpatialQueryApp(param.Parameterized):
         )
 
         return (transect_plot * prediction_plot).opts(legend_position="bottom_right")
-
-    # def plot_transect(self, transect):
-    #     """Plot the given transect with polygons and paths."""
-    #     if isinstance(transect, (Transect, TypologyTrainSample, TypologyTestSample)):
-    #         transect = transect.to_frame()
-
-    #     coords = list(transect.geometry.item().coords)
-    #     landward_point, seaward_point = coords[0], coords[-1]
-    #     # NOTE: I don't think showing the origin point is necessary
-    #     # transect_origin_point = shapely.Point(transect.lon.item(), transect.lat.item())
-    #     polygon = gpd.GeoDataFrame(
-    #         geometry=[
-    #             create_offset_rectangle(
-    #                 transect.to_crs(transect.estimate_utm_crs()).geometry.item(), 200
-    #             )
-    #         ],
-    #         crs=transect.estimate_utm_crs(),
-    #     )
-    #     polygon_plot = gv.Polygons(
-    #         polygon[["geometry"]].to_crs(4326), label="Area of Interest"
-    #     ).opts(fill_alpha=0.1, fill_color="green", line_width=2)
-    #     transect_plot = gv.Path(
-    #         transect[["geometry"]].to_crs(4326), label="Transect"
-    #     ).opts(color="red", line_width=1, tools=["hover"])
-    #     landward_point_plot = gv.Points([landward_point], label="Landward").opts(
-    #         color="green", line_color="red", size=10
-    #     )
-    #     seaward_point_plot = gv.Points([seaward_point], label="Seaward").opts(
-    #         color="blue", line_color="red", size=10
-    #     )
-    #     # NOTE: I don't think showing the origin point is necessary
-    #     # transect_origin_point_plot = gv.Points(
-    #     #     [transect_origin_point], label="Origin"
-    #     # ).opts(color="red", line_color="red", size=10)
-
-    #     return (
-    #         polygon_plot * transect_plot * landward_point_plot * seaward_point_plot
-    #     ).opts(legend_position="bottom_right")
 
     def set_transect(self, data, update=True):
         """Sets the current transect and optionally updates the view."""

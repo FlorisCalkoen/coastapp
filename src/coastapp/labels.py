@@ -189,8 +189,18 @@ class LabelledTransectManager(CRUDManager):
             # Convert the record to the appropriate BaseModel
             if dataframe == "user_df":
                 record = TypologyTrainSample.from_frame(next_record)
+            elif dataframe == "test_df":
+                train_sample = TypologyTrainSample.from_frame(next_record)
+                record = TypologyTestSample(
+                    train_sample=train_sample,
+                    pred_shore_type=next_record.pred_shore_type.item(),
+                    pred_coastal_type=next_record.pred_coastal_type.item(),
+                    pred_has_defense=next_record.pred_has_defense.item(),
+                    pred_is_built_environment=next_record.pred_is_built_environment.item(),
+                )
+                return record
             else:
-                record = TypologyTestSample.from_frame(next_record)
+                raise ValueError(f"Invalid dataframe specified: {dataframe}")
 
             return record
 
@@ -199,36 +209,6 @@ class LabelledTransectManager(CRUDManager):
                 f"Error retrieving next record in {dataframe} for user: {self.user_manager.selected_user.value}. Error: {e}"
             )
             return None
-
-    # def get_next_record(
-    #     self, dataframe: Literal["user_df", "test_df"]
-    # ) -> BaseModel | None:
-    #     """
-    #     Get the next record from the specified dataframe (user_df or test_df).
-
-    #     Args:
-    #         dataframe (str): The dataframe to query. Options are 'user_df' or 'test_df'.
-
-    #     Returns:
-    #         BaseModel | None: The next record as a BaseModel, or None if no record found.
-    #     """
-    #     df = getattr(self, dataframe)
-    #     if df.empty or self.current_uuid not in df["uuid"].values:
-    #         logger.warning(f"No records available in {dataframe} or invalid UUID.")
-    #         return None
-
-    #     try:
-    #         current_index = int(df.index[df["uuid"] == self.current_uuid][0])
-    #         next_index = (current_index + 1) % len(df)
-    #         next_record = df.iloc[[next_index]]
-    #         self._current_uuid = next_record.uuid.item()
-    #         record = TypologyTrainSample.from_frame(next_record)
-    #         return record
-    #     except Exception as e:
-    #         logger.warning(
-    #             f"No records found in {dataframe} for user: {self.user_manager.selected_user.value}. Error: {e}"
-    #         )
-    #         return None
 
     def get_previous_record(
         self, dataframe: Literal["user_df", "test_df"]
@@ -280,8 +260,18 @@ class LabelledTransectManager(CRUDManager):
             # Convert the record to the appropriate BaseModel
             if dataframe == "user_df":
                 record = TypologyTrainSample.from_frame(previous_record)
+            elif dataframe == "test_df":
+                train_sample = TypologyTrainSample.from_frame(previous_record)
+                record = TypologyTestSample(
+                    train_sample=train_sample,
+                    pred_shore_type=previous_record.pred_shore_type.item(),
+                    pred_coastal_type=previous_record.pred_coastal_type.item(),
+                    pred_has_defense=previous_record.pred_has_defense.item(),
+                    pred_is_built_environment=previous_record.pred_is_built_environment.item(),
+                )
+                return record
             else:
-                record = TypologyTestSample.from_frame(previous_record)
+                raise ValueError(f"Invalid dataframe specified: {dataframe}")
 
             return record
 
