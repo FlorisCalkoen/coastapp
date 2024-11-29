@@ -126,4 +126,3 @@ app = pn.template.FastListTemplate(
 )
 
 app.servable().show()
-print("Done")

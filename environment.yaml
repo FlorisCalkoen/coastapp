@@ -50,6 +50,7 @@ dependencies:
   - s3fs
   - pystac-client
   - pyperclip
+  - msgspec
 
   # Install the project and dependencies
   - pip:
