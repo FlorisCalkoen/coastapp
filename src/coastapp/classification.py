@@ -414,33 +414,6 @@ class ClassificationManager(CRUDManager):
         """Handle the button click to get a random transect from the filtered test_df."""
         test_df = self.spatial_query_app.labelled_transect_manager.test_df
 
-        # Apply filters based on widget states
-        # if self.spatial_query_app.only_use_incorrect:
-        #     test_df = test_df[
-        #         (test_df["shore_type"] != test_df["pred_shore_type"])
-        #         | (test_df["coastal_type"] != test_df["pred_coastal_type"])
-        #     ]
-
-        # if self.spatial_query_app.only_use_non_validated:
-        #     test_df = test_df[~test_df["is_validated"]]
-
-        # confidence_hierarchy = {
-        #     "low": ["low", "medium", "high"],
-        #     "medium": ["medium", "high"],
-        #     "high": ["high"],
-        # }
-
-        # confidence_level = self.spatial_query_app.confidence_filter_slider.value
-        # valid_confidences = confidence_hierarchy[confidence_level]
-        # test_df = test_df[test_df["confidence"].isin(valid_confidences)]
-
-        # # Exclude already seen UUIDs
-        # test_df = test_df[~test_df["uuid"].isin(self.seen_uuids)]
-
-        # if test_df.empty:
-        #     logger.warning("No records available after filtering.")
-        #     return
-
         # Sample one record
         sample = test_df.sample(1)
         self.shared_state.seen_uuids = self.shared_state.seen_uuids + [
