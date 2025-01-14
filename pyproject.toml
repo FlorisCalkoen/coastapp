@@ -16,10 +16,10 @@ line-length = 88
 src = ["src"]
 target-version = "py311"
 exclude = ["*.json"]  # Exclude all JSON files from ruff checks
-extend-ignore = [
+lint.extend-ignore = [
   "E501",  # Line too long
   "E402",  # Module level import not at top of file
 ]
 
-[tool.ruff.pydocstyle]
+[lint.pydocstyle]
 convention = "google"
