@@ -16,6 +16,7 @@ from shapely.geometry import Point
 from shapely.wkb import loads
 
 from coastapp.enums import StorageBackend
+from coastapp.shared_state import shared_state
 from coastapp.specification import (
     BaseModel,
     Transect,
@@ -24,7 +25,6 @@ from coastapp.specification import (
 )
 from coastapp.style_config import COAST_TYPE_COLORS, SHORE_TYPE_MARKERS
 from coastapp.utils import buffer_geometries_in_utm, create_offset_rectangle
-from coastapp.shared_state import shared_state
 
 logger = logging.getLogger(__name__)
 
@@ -54,9 +54,9 @@ class SpatialQueryEngine:
         self.configure_storage_backend()
 
         self.quadtiles = self.load_quadtiles_from_stac(stac_url, collection_id)
-        if len(self.quadtiles["proj:epsg"].unique()) > 1:
+        if len(self.quadtiles["proj:code"].unique()) > 1:
             raise ValueError("Multiple CRSs found in the STAC collection.")
-        self.proj_epsg = self.quadtiles["proj:epsg"].unique().item()
+        self.proj_code = self.quadtiles["proj:code"].unique().item()
 
         self.radius = 10000.0  # Max radius for nearest search
 
@@ -93,7 +93,7 @@ class SpatialQueryEngine:
         return {
             "geometry": shapely.geometry.shape(stac_item.geometry),
             "href": stac_item.assets["data"].href,
-            "proj:epsg": stac_item.properties["proj:epsg"],
+            "proj:code": stac_item.properties["proj:code"],
         }
 
     def get_random_transect(self):
@@ -154,7 +154,7 @@ class SpatialQueryEngine:
         point_gdf = gpd.GeoDataFrame(geometry=[point], crs="EPSG:4326")
         href = gpd.sjoin(self.quadtiles, point_gdf, predicate="contains").href.iloc[0]
         area_of_interest = buffer_geometries_in_utm(point_gdf, self.radius)
-        point_gdf_wkt = point_gdf.to_crs(self.proj_epsg).geometry.to_wkt().iloc[0]
+        point_gdf_wkt = point_gdf.to_crs(self.proj_code).geometry.to_wkt().iloc[0]
 
         # Note: Handling azure and aws URLs
         if self.storage_backend == "azure":
@@ -402,7 +402,7 @@ class SpatialQueryApp(param.Parameterized):
 
     def _plot_test_transect(self, test_sample):
         """
-        Plot a test transect with prediction-specific layers.
+        Plot a test transect with prediction-specific layers, including defense and built environment indicators.
 
         Args:
             test_sample (TypologyTestSample): A TypologyTestSample instance.
@@ -414,39 +414,137 @@ class SpatialQueryApp(param.Parameterized):
         if "pred_shore_type" not in test_df.columns:
             raise ValueError("Test sample missing prediction data.")
 
-        test_df["coast_color"] = test_df["pred_coastal_type"].map(
+        # Map classification attributes for shore and coastal types
+        test_df["coastal_type_color"] = test_df["pred_coastal_type"].map(
             self.coast_type_colors
         )
-        test_df["shore_marker"] = test_df["pred_shore_type"].map(
+        test_df["shore_type_marker"] = test_df["pred_shore_type"].map(
             self.shore_type_markers
         )
 
-        pred_coast_type = test_df["pred_coastal_type"].item()
-        pred_shore_type = test_df["pred_shore_type"].item()
+        # Set marker size based on pred_has_defense
+        test_df["marker_size"] = test_df["pred_has_defense"].apply(
+            lambda x: 35 if x == "true" else 25
+        )
+
+        # Add circles for defenses (gray) and built environments (red)
+        test_df["defense_color"] = test_df["pred_has_defense"].apply(
+            lambda x: "#696969" if x == "true" else None
+        )
+        test_df["built_env_color"] = test_df["pred_is_built_environment"].apply(
+            lambda x: "#FF0000" if x == "true" else None
+        )
+
+        # Set circle sizes: defense slightly larger than the marker, built environment larger than defense
+        test_df["defense_outline_size"] = test_df["marker_size"] + 8
+        test_df["built_env_outline_size"] = test_df["defense_outline_size"] + 8
 
         # Map coordinates for visualization
         test_df["Longitude"] = test_df.lon
         test_df["Latitude"] = test_df.lat
 
+        # Plot the base transect
         transect_plot = self._plot_transect(test_sample)
 
+        # Base prediction markers (shore and coastal type)
         prediction_plot = gv.Points(
             test_df,
             kdims=["Longitude", "Latitude"],
             vdims=[
-                "coast_color",
+                "coastal_type_color",
                 "pred_shore_type",
                 "pred_coastal_type",
-                "shore_marker",
+                "shore_type_marker",
+                "marker_size",
             ],
-            label=f"Pred shore type: {pred_shore_type} \n Pred coastal type: {pred_coast_type}",
+            label=f"Pred shore type: {test_df['pred_shore_type'].item()} \n Pred coastal type: {test_df['pred_coastal_type'].item()}",
         ).opts(
-            color="coast_color",
-            size=25,
-            marker="shore_marker",
+            color="coastal_type_color",
+            marker="shore_type_marker",
+            size="marker_size",
+            tools=["hover"],
         )
 
-        return (transect_plot * prediction_plot).opts(legend_position="bottom_right")
+        # Gray outline for defenses
+        defense_circles = gv.Points(
+            test_df[test_df["pred_has_defense"] == "true"],
+            kdims=["Longitude", "Latitude"],
+            vdims=["defense_color", "defense_outline_size"],
+        ).opts(
+            color="defense_color",
+            marker="circle",
+            size="defense_outline_size",
+            fill_color=None,
+            line_width=2,
+        )
+
+        # Red outline for built environment
+        built_env_circles = gv.Points(
+            test_df[test_df["pred_is_built_environment"] == "true"],
+            kdims=["Longitude", "Latitude"],
+            vdims=["built_env_color", "built_env_outline_size"],
+        ).opts(
+            color="built_env_color",
+            marker="circle",
+            size="built_env_outline_size",
+            fill_color=None,
+            line_width=2,
+        )
+
+        # Combine plots: built environment circles on top, then defenses, then base points
+        final_plot = (
+            built_env_circles * defense_circles * prediction_plot * transect_plot
+        )
+
+        return final_plot.opts(legend_position="bottom_right")
+
+    # def _plot_test_transect(self, test_sample):
+    #     """
+    #     Plot a test transect with prediction-specific layers.
+
+    #     Args:
+    #         test_sample (TypologyTestSample): A TypologyTestSample instance.
+
+    #     Returns:
+    #         gv.Overlay: A Holoviews overlay object with the visualization layers.
+    #     """
+    #     test_df = test_sample.to_frame()
+    #     if "pred_shore_type" not in test_df.columns:
+    #         raise ValueError("Test sample missing prediction data.")
+
+    #     test_df["coastal_type_color"] = test_df["pred_coastal_type"].map(
+    #         self.coast_type_colors
+    #     )
+    #     test_df["shore_type_marker"] = test_df["pred_shore_type"].map(
+    #         self.shore_type_markers
+    #     )
+
+    #     pred_coast_type = test_df["pred_coastal_type"].item()
+    #     pred_shore_type = test_df["pred_shore_type"].item()
+
+    #     # Map coordinates for visualization
+    #     test_df["Longitude"] = test_df.lon
+    #     test_df["Latitude"] = test_df.lat
+
+    #     transect_plot = self._plot_transect(test_sample)
+
+    #     prediction_plot = gv.Points(
+    #         test_df,
+    #         kdims=["Longitude", "Latitude"],
+    #         vdims=[
+    #             "coastal_type_color",
+    #             "pred_shore_type",
+    #             "pred_coastal_type",
+    #             "shore_type_marker",
+    #         ],
+    #         label=f"Pred shore type: {pred_shore_type} \n Pred coastal type: {pred_coast_type}",
+    #     ).opts(
+    #         color="coastal_type_color",
+    #         size=25,
+    #         marker="shore_type_marker",
+    #     )
+
+    #     return (transect_plot * prediction_plot).opts(legend_position="bottom_right")
 
     def set_transect(self, data, update=True):
         """Sets the current transect and optionally updates the view."""
@@ -601,90 +699,158 @@ class SpatialQueryApp(param.Parameterized):
         return plot
 
     def plot_test_prediction(self):
-        """Plot the test predictions layer with multiple points."""
+        """Plot the test predictions layer for a single transect with defense and built environment indicators."""
 
         df = self.current_transect.to_frame()
-        if "pred_shore_type" in df.columns:
-            df["coast_color"] = df["pred_coastal_type"].map(self.coast_type_colors)
-            df["shore_marker"] = df["pred_shore_type"].map(self.shore_type_markers)
-            pred_coast_type = df["pred_coastal_type"].item()
-            pred_shore_type = df["pred_shore_type"].item()
 
-            df = df.assign(geometry=gpd.GeoSeries.from_xy(df.lon, df.lat, crs=4326))[
-                [
-                    "geometry",
-                    "pred_shore_type",
-                    "pred_coastal_type",
-                    "coast_color",
-                    "shore_marker",
-                ]
-            ]
-            plot = gv.Points(
-                df,
-                kdims=[
-                    "Longitude",
-                    "Latitude",
-                ],  # Specify x and y dimensions for plotting
-                vdims=[
-                    "coast_color",
-                    "pred_shore_type",
-                    "pred_coastal_type",
-                    "shore_marker",
-                ],
-                label=f"Shore type: {pred_shore_type} \nCoastal type: {pred_coast_type}",
-            ).opts(
-                color="coast_color",
-                size=25,
-                marker="shore_marker",
+        if "pred_shore_type" in df.columns:
+            # Map existing classification attributes
+            df["coastal_type_color"] = df["pred_coastal_type"].map(
+                self.coast_type_colors
             )
-            return plot
+            df["shore_type_marker"] = df["pred_shore_type"].map(self.shore_type_markers)
+
+            # Adjust marker size based on pred_has_defense
+            df["marker_size"] = df["pred_has_defense"].apply(lambda x: 35 if x else 25)
+
+            # Add gray circle outline if pred_is_built_environment is True
+            df["is_built_env_color"] = df["pred_is_built_environment"].apply(
+                lambda x: "#696969" if x else None
+            )
+            df["outline_size"] = (
+                df["marker_size"] + 8
+            )  # Slightly larger than marker size
+
+            # Prepare geometry
+            df = df.assign(geometry=gpd.GeoSeries.from_xy(df.lon, df.lat, crs=4326))
+
+            # Base prediction markers (shore and coastal type)
+            base_points = gv.Points(
+                df,
+                kdims=["Longitude", "Latitude"],
+                vdims=[
+                    "coastal_type_color",
+                    "pred_shore_type",
+                    "pred_coastal_type",
+                    "shore_type_marker",
+                    "marker_size",
+                ],
+                label=f"Shore type: {df['pred_shore_type'].item()} \nCoastal type: {df['pred_coastal_type'].item()}",
+            ).opts(
+                color="coastal_type_color",
+                marker="shore_type_marker",
+                size="marker_size",
+            )
+
+            # Gray outline for built environment
+            outer_circles = gv.Points(
+                df[
+                    df["pred_is_built_environment"] == True  # noqa: E712
+                ],  # Only for built environments
+                kdims=["Longitude", "Latitude"],
+                vdims=["is_built_env_color", "outline_size"],
+            ).opts(
+                color="is_built_env_color",
+                marker="circle",
+                size="outline_size",
+                fill_alpha=0,  # Only outline
+                line_width=2,
+            )
+
+            # Combine plots
+            final_plot = outer_circles * base_points
+
+            return final_plot
+
         else:
             return gv.Points([])
 
     def plot_test_predictions(self):
-        """Plot the test predictions layer with multiple points."""
+        """Plot the test predictions layer for multiple transects with defense and built environment indicators."""
 
         test_df = self.labelled_transect_manager.test_df.copy()
+
+        # Prepare the GeoDataFrame
         df = (
             test_df.assign(
                 geometry=gpd.GeoSeries.from_xy(test_df.lon, test_df.lat, crs=4326)
             )
             .copy()
-            .dropna(subset="user")
+            .dropna(subset=["user"])
             .reset_index(drop=True)
         )
 
-        # if self.shared_state.only_use_incorrect:
-        #     df = df[
-        #         (df["shore_type"] != df["pred_shore_type"])
-        #         | (df["coastal_type"] != df["pred_coastal_type"])
-        #     ]
+        # Map classification attributes for shore and coastal types
+        df["coastal_type_color"] = df["pred_coastal_type"].map(self.coast_type_colors)
+        df["shore_type_marker"] = df["pred_shore_type"].map(self.shore_type_markers)
 
-        df = df[
-            [
-                "geometry",
-                "pred_shore_type",
-                "pred_coastal_type",
-                "coast_color",
-                "shore_marker",
-            ]
-        ]
-        plot = gv.Points(
-            df,
-            kdims=["Longitude", "Latitude"],  # Specify x and y dimensions for plotting
-            vdims=[
-                "coast_color",
-                "pred_shore_type",
-                "pred_coastal_type",
-                "shore_marker",
-            ],  # Values used for hover info and styling
-        ).opts(
-            color="coast_color",
-            size=25,
-            marker="shore_marker",
-            legend_position="right",
+        # Set marker size based on pred_has_defense
+        df["marker_size"] = df["pred_has_defense"].apply(
+            lambda x: 35 if x == "true" else 25
         )
-        return plot
+
+        # Add circles for defenses (gray) and built environments (red)
+        df["defense_color"] = df["pred_has_defense"].apply(
+            lambda x: "#696969" if x == "true" else None
+        )
+        df["built_env_color"] = df["pred_is_built_environment"].apply(
+            lambda x: "#FF0000" if x == "true" else None
+        )
+
+        # Set circle sizes: defense slightly larger than the marker, built environment larger than defense
+        df["defense_outline_size"] = df["marker_size"] + 8
+        df["built_env_outline_size"] = df["defense_outline_size"] + 8
+
+        # Base prediction markers (shore and coastal type)
+        base_points = gv.Points(
+            df,
+            kdims=["Longitude", "Latitude"],
+            vdims=[
+                "coastal_type_color",
+                "pred_shore_type",
+                "pred_coastal_type",
+                "shore_type_marker",
+                "marker_size",
+            ],
+        ).opts(
+            color="coastal_type_color",
+            marker="shore_type_marker",
+            size="marker_size",
+            tools=["hover"],
+            legend_position="right",
+            width=800,
+        )
+
+        # Gray outline for defenses
+        defense_circles = gv.Points(
+            df[df["pred_has_defense"] == "true"],
+            kdims=["Longitude", "Latitude"],
+            vdims=["defense_color", "defense_outline_size"],
+        ).opts(
+            color="defense_color",
+            marker="circle",
+            size="defense_outline_size",
+            fill_color=None,
+            line_width=2,
+        )
+
+        # Red outline for built environment
+        built_env_circles = gv.Points(
+            df[df["pred_is_built_environment"] == "true"],
+            kdims=["Longitude", "Latitude"],
+            vdims=["built_env_color", "built_env_outline_size"],
+        ).opts(
+            color="built_env_color",
+            marker="circle",
+            size="built_env_outline_size",
+            fill_color=None,
+            line_width=2,
+        )
+
+        # Combine plots: built environment circles on top, then defenses, then base points
+        final_plot = built_env_circles * defense_circles * base_points
+
+        return final_plot
 
     def get_selected_geometry(self):
         """Returns the currently selected transect's geometry and metadata."""

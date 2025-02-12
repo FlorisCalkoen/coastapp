@@ -5,7 +5,7 @@ channels:
 
 dependencies:
   # Python version, pip, and other very generic libraries
-  - python=3.11
+  - python=3.12
   - pip>=20
   - ca-certificates
   - certifi
@@ -37,7 +37,8 @@ dependencies:
   # Data Science libraries
   - adlfs
   - cartopy
-  - dask
+  - dask<2025.1.0
+
   - fiona
   - fsspec
   - geopandas>=0.11.0

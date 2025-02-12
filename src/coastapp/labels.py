@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class LabelledTransectManager(CRUDManager):
     shared_state = shared_state
     shore_type_markers = SHORE_TYPE_MARKERS
-    coast_type_colors = COAST_TYPE_COLORS
+    coastal_type_colors = COAST_TYPE_COLORS
 
     def __init__(self, storage_options, container_name, prefix, user_manager):
         super().__init__(container_name=container_name, storage_options=storage_options)
@@ -110,6 +110,7 @@ class LabelledTransectManager(CRUDManager):
         TEST_PREDICTIONS_PREFIX = "az://typology/test/*.parquet"
         fs = fsspec.filesystem("az", **self.storage_options)
         files = fs.glob(TEST_PREDICTIONS_PREFIX)
+        files.reverse()  # Reverse the order to show the latest files first
         self.test_layer_options = {
             f.split("/")[-1].replace(".parquet", ""): f for f in files
         }
@@ -125,10 +126,10 @@ class LabelledTransectManager(CRUDManager):
         _test_df = _test_df.dropna(subset="user").reset_index(drop=True)
 
         # Add color and symbol mapping to the dataframe
-        _test_df["coast_color"] = _test_df["pred_coastal_type"].map(
-            self.coast_type_colors
+        _test_df["coastal_type_color"] = _test_df["pred_coastal_type"].map(
+            self.coastal_type_colors
         )
-        _test_df["shore_marker"] = _test_df["pred_shore_type"].map(
+        _test_df["shore_type_marker"] = _test_df["pred_shore_type"].map(
             self.shore_type_markers
         )
 
