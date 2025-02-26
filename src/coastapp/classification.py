@@ -6,8 +6,8 @@ import pandas as pd
 import panel as pn
 
 from coastapp.crud import CRUDManager
-from coastapp.specification import Transect, TypologyTestSample, TypologyTrainSample
 from coastapp.shared_state import shared_state
+from coastapp.specification import Transect, TypologyTestSample, TypologyTrainSample
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +70,13 @@ class ClassificationManager(CRUDManager):
             name="Next Transect", button_type="default"
         )
 
+        self.previous_benchmark_button = pn.widgets.Button(
+            name="Previous Transect", button_type="default"
+        )
+        self.next_benchmark_button = pn.widgets.Button(
+            name="Next Transect", button_type="default"
+        )
+
         self.uuid_text_input = pn.widgets.TextInput(
             name="Load sample by UUID", placeholder="Enter a UUID here..."
         )
@@ -89,6 +96,10 @@ class ClassificationManager(CRUDManager):
         # test buttons
         self.previous_test_button.on_click(self.load_previous_test_transect)
         self.next_test_button.on_click(self.load_next_test_transect)
+
+        # benchmark buttons
+        self.previous_benchmark_button.on_click(self.load_previous_benchmark_sample)
+        self.next_benchmark_button.on_click(self.load_next_benchmark_sample)
 
         self.uuid_text_input.param.watch(self._load_record_by_uuid, "value")
         self.get_random_test_sample_button.on_click(self._get_random_test_sample)
@@ -175,6 +186,24 @@ class ClassificationManager(CRUDManager):
             self.record = record
             self.load_transect_data_into_widgets(record)
 
+    def load_previous_benchmark_sample(self, event=None):
+        """Callback to load the previous transect."""
+        record = self.spatial_query_app.labelled_transect_manager.get_previous_record(
+            dataframe="benchmark_df"
+        )
+        if record:
+            self.record = record
+            self.load_transect_data_into_widgets(record)
+
+    def load_next_benchmark_sample(self, event=None):
+        """Callback to load the next transect."""
+        record = self.spatial_query_app.labelled_transect_manager.get_next_record(
+            "benchmark_df"
+        )
+        if record:
+            self.record = record
+            self.load_transect_data_into_widgets(record)
+
     def iterate_labelled_transects_view(self):
         """Return a Row containing the Previous and Next transect buttons."""
         return pn.Row(self.previous_button, self.next_button)
@@ -182,6 +211,10 @@ class ClassificationManager(CRUDManager):
     def view_iterate_test_transects(self):
         """Return a Row containing the Previous and Next transect buttons."""
         return pn.Row(self.previous_test_button, self.next_test_button)
+
+    def view_iterate_benchmark_transects(self):
+        """Return a Row containing the Previous and Next transect buttons."""
+        return pn.Row(self.previous_benchmark_button, self.next_benchmark_button)
 
     def uuid_text_input_view(self):
         """Return an AutocompleteInput widget for UUID entry."""

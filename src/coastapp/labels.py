@@ -10,7 +10,12 @@ import panel as pn
 from coastapp.crud import CRUDManager
 from coastapp.libs import read_records_to_pandas
 from coastapp.shared_state import shared_state
-from coastapp.specification import BaseModel, TypologyTestSample, TypologyTrainSample
+from coastapp.specification import (
+    BaseModel,
+    Transect,
+    TypologyTestSample,
+    TypologyTrainSample,
+)
 from coastapp.style_config import COAST_TYPE_COLORS, SHORE_TYPE_MARKERS
 
 logger = logging.getLogger(__name__)
@@ -27,10 +32,13 @@ class LabelledTransectManager(CRUDManager):
         self.user_manager = user_manager
         self._current_uuid = None
         self._current_test_uuid = None
+        self._current_benchmark_uuid = None
         self._df = None
         self._test_df = None
+        self._benchmark_df = None
 
         self._load_test_layers()
+        self._load_benchmark_layers()
 
         # Set up a watcher on the selected user parameter to trigger updates
         self.user_manager.selected_user.param.watch(
@@ -41,6 +49,11 @@ class LabelledTransectManager(CRUDManager):
         )
 
         self.test_layer_select.param.watch(self._fetch_test_predictions, "value")
+
+        self.benchmark_layer_select = pn.widgets.Select(
+            options=list(self.benchmark_layer_options.keys())
+        )
+        self.benchmark_layer_select.param.watch(self._fetch_benchmark_samples, "value")
 
     @property
     def get_prefix(self) -> str:
@@ -77,6 +90,14 @@ class LabelledTransectManager(CRUDManager):
         return self._filter_test_df(self._test_df)
 
     @property
+    def benchmark_df(self) -> gpd.GeoDataFrame:
+        """Get the test DataFrame."""
+        if self._benchmark_df is None:
+            benchmark_df = self._fetch_benchmark_samples()
+            self._benchmark_df = benchmark_df
+        return self._benchmark_df
+
+    @property
     def current_uuid(self) -> str:
         """Get the current index for navigation."""
         if self._current_uuid is None:
@@ -89,6 +110,13 @@ class LabelledTransectManager(CRUDManager):
         if self._current_test_uuid is None:
             self._current_test_uuid = self.test_df.iloc[-1].uuid
         return self._current_test_uuid
+
+    @property
+    def current_benchmark_uuid(self) -> str:
+        """Get the current index for navigation."""
+        if self._current_benchmark_uuid is None:
+            self._current_benchmark_uuid = self.benchmark_df.iloc[-1].uuid
+        return self._current_benchmark_uuid
 
     def load(self) -> gpd.GeoDataFrame:
         """Load all labelled transects from storage into a GeoPandas dataframe."""
@@ -116,10 +144,19 @@ class LabelledTransectManager(CRUDManager):
         }
         return self.test_layer_options
 
-    def _fetch_test_predictions(self) -> gpd.GeoDataFrame:
+    def _load_benchmark_layers(self) -> dict:
+        BENCHMARK_PREFIX = "az://typology/benchmark/*.parquet"
+        fs = fsspec.filesystem("az", **self.storage_options)
+        files = fs.glob(BENCHMARK_PREFIX)
+        self.benchmark_layer_options = {
+            f.split("/")[-1].replace(".parquet", ""): f for f in files
+        }
+        return self.benchmark_layer_options
+
+    def _fetch_test_predictions(self, event=None) -> gpd.GeoDataFrame:
         """Load the test predictions from the selected parquet file."""
 
-        self.test_layer_select.value
+        # self.test_layer_select.value
         fs = fsspec.filesystem("az", **self.storage_options)
         with fs.open(self.test_layer_options[self.test_layer_select.value]) as f:
             _test_df = gpd.read_parquet(f)
@@ -135,6 +172,21 @@ class LabelledTransectManager(CRUDManager):
 
         self._test_df = _test_df
         return self._test_df
+
+    def _fetch_benchmark_samples(self, event=None) -> gpd.GeoDataFrame:
+        """Load the test predictions from the selected parquet file."""
+
+        # self.test_layer_select.value
+        fs = fsspec.filesystem("az", **self.storage_options)
+        pathlike = self.benchmark_layer_options[self.benchmark_layer_select.value]
+        with fs.open(pathlike) as f:
+            _df = gpd.read_parquet(f)
+
+        _df = _df.reset_index(drop=True)
+
+        self._current_benchmark_uuid = None
+        self._benchmark_df = _df
+        return self._benchmark_df
 
     def _filter_test_df(self, test_df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -211,7 +263,7 @@ class LabelledTransectManager(CRUDManager):
             raise
 
     def get_next_record(
-        self, dataframe: Literal["user_df", "test_df"]
+        self, dataframe: Literal["user_df", "test_df", "benchmark_df"]
     ) -> BaseModel | None:
         """
         Get the next record from the specified dataframe (user_df or test_df).
@@ -226,14 +278,13 @@ class LabelledTransectManager(CRUDManager):
 
         df = getattr(self, dataframe)
 
-        if dataframe == "test_df":
-            df
-
         # Determine the correct UUID to use
         if dataframe == "user_df":
             current_uuid = self.current_uuid
         elif dataframe == "test_df":
             current_uuid = self.current_test_uuid
+        elif dataframe == "benchmark_df":
+            current_uuid = self.current_benchmark_uuid
         else:
             raise ValueError(f"Invalid dataframe specified: {dataframe}")
 
@@ -255,6 +306,8 @@ class LabelledTransectManager(CRUDManager):
                 self._current_uuid = next_record.uuid.item()
             elif dataframe == "test_df":
                 self._current_test_uuid = next_record.uuid.item()
+            elif dataframe == "benchmark_df":
+                self._current_benchmark_uuid = next_record.uuid.item()
 
             # Convert the record to the appropriate BaseModel
             if dataframe == "user_df":
@@ -269,6 +322,8 @@ class LabelledTransectManager(CRUDManager):
                     pred_is_built_environment=next_record.pred_is_built_environment.item(),
                 )
                 return record
+            elif dataframe == "benchmark_df":
+                record = Transect.from_frame(next_record)
             else:
                 raise ValueError(f"Invalid dataframe specified: {dataframe}")
 
@@ -300,6 +355,8 @@ class LabelledTransectManager(CRUDManager):
             current_uuid = self.current_uuid
         elif dataframe == "test_df":
             current_uuid = self.current_test_uuid
+        elif dataframe == "benchmark_df":
+            current_uuid = self.current_benchmark_uuid
         else:
             raise ValueError(f"Invalid dataframe specified: {dataframe}")
 
@@ -327,9 +384,13 @@ class LabelledTransectManager(CRUDManager):
             elif dataframe == "test_df":
                 self._current_test_uuid = previous_record.uuid.item()
 
+            elif dataframe == "benchmark_df":
+                self._current_benchmark_uuid = previous_record.uuid.item()
+
             # Convert the record to the appropriate BaseModel
             if dataframe == "user_df":
                 record = TypologyTrainSample.from_frame(previous_record)
+
             elif dataframe == "test_df":
                 train_sample = TypologyTrainSample.from_frame(previous_record)
                 record = TypologyTestSample(
@@ -340,6 +401,10 @@ class LabelledTransectManager(CRUDManager):
                     pred_is_built_environment=previous_record.pred_is_built_environment.item(),
                 )
                 return record
+
+            elif dataframe == "benchmark_df":
+                record = Transect.from_frame(previous_record)
+
             else:
                 raise ValueError(f"Invalid dataframe specified: {dataframe}")
 

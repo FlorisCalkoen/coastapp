@@ -92,6 +92,14 @@ additional_features_view = pn.Column(
     name="Additional Features",
 )
 
+benchmark_samples_view = pn.Column(
+    pn.pane.Markdown("## [Advanced:] Human benchmark "),
+    spatial_query_app.view_benchmark_layer_select(),
+    classification_manager.view_iterate_benchmark_transects(),
+    name="[Advanced]: Human benchmark",
+)
+
+
 test_predictions_view = pn.Column(
     pn.pane.Markdown("## [Advanced:] Explore the test predictions"),
     spatial_query_app.view_test_layer_select(),
@@ -102,7 +110,6 @@ test_predictions_view = pn.Column(
     classification_manager.view_get_random_test_sample(),
     name="[Advanced]: Explore the test predictions",
 )
-
 
 # Define the Panel template
 app = pn.template.FastListTemplate(
@@ -115,6 +122,7 @@ app = pn.template.FastListTemplate(
         classification_manager.view(),
         additional_features_view,
         classification_schema_manager.view_add_new_class_widget(),
+        benchmark_samples_view,
         test_predictions_view,
     ],
     main=[

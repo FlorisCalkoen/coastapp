@@ -872,6 +872,10 @@ class SpatialQueryApp(param.Parameterized):
         """Returns the toggle button to view predicted test transects."""
         return self.storage_backend_button
 
+    def view_benchmark_backend_button(self):
+        """Returns the toggle button to view predicted test transects."""
+        return self.benchmark_backend_button
+
     def view_get_random_transect_button(self):
         """Returns the toggle button to view labelled transects."""
         return self.get_random_transect_button
@@ -883,6 +887,10 @@ class SpatialQueryApp(param.Parameterized):
     def view_test_layer_select(self):
         """Returns the toggle button to view predicted test transects."""
         return self.labelled_transect_manager.test_layer_select
+
+    def view_benchmark_layer_select(self):
+        """Returns the toggle button to view predicted test transects."""
+        return self.labelled_transect_manager.benchmark_layer_select
 
     def view_filter_test_predictions(self):
         """Returns the toggle button to view predicted test transects."""

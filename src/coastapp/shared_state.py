@@ -1,5 +1,5 @@
-import param
 import panel as pn
+import param
 
 from coastapp.specification import BaseModel
 
