@@ -25,7 +25,7 @@ logger.info(f"DuckDB version: {duckdb.__version__}")
 pn.extension()
 hv.extension("bokeh")
 
-stac_url = "https://coclico.blob.core.windows.net/stac/test/catalog.json"
+stac_url = "https://coclico.blob.core.windows.net/stac/v1/catalog.json"
 
 spatial_engine = SpatialQueryEngine(
     stac_url=stac_url,
