@@ -26,7 +26,7 @@ RUN conda env create -f environment.yaml && \
 RUN /env/bin/conda-unpack
 
 # Use Debian slim as the runtime base image
-FROM debian:buster-slim AS runtime
+FROM debian:bookworm-slim AS runtime
 
 # Copy the packed environment from the build stage
 COPY --from=build /env /env
